@@ -394,3 +394,50 @@ def plot_top_ngrams(
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def plot_correlation_heatmap(
+    corr_df,
+    output_path: Path,
+    title: str = "Stylometric Feature Collinearity & Target Correlation Matrix (Point 13)",
+) -> Path:
+    """
+    Generate a publication-ready correlation heatmap showing:
+    1. Inter-feature correlations (collinearity)
+    2. Feature-to-target correlations (r with author identity / AI class)
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n_vars = len(corr_df.columns)
+    fig, ax = plt.subplots(figsize=(max(11, n_vars * 0.7), max(9, n_vars * 0.65)), dpi=160)
+
+    # Use modern colormap access compatible with matplotlib 3.8+
+    cmap = matplotlib.colormaps["coolwarm"]
+    cax = ax.imshow(corr_df.values, cmap=cmap, vmin=-1.0, vmax=1.0, aspect="auto")
+
+    # Ticks & labels
+    ax.set_xticks(range(n_vars))
+    ax.set_yticks(range(n_vars))
+    clean_labels = [c.replace("stylometry__", "").replace("_", " ") for c in corr_df.columns]
+    ax.set_xticklabels(clean_labels, rotation=45, ha="right", fontsize=8.5, color=PALETTE["text"])
+    ax.set_yticklabels(clean_labels, fontsize=8.5, color=PALETTE["text"])
+
+    # Annotate values if dimensions are manageable (<= 25)
+    if n_vars <= 25:
+        for i in range(n_vars):
+            for j in range(n_vars):
+                val = corr_df.values[i, j]
+                text_color = "white" if abs(val) > 0.55 else "black"
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center", fontsize=7, color=text_color, fontweight="semibold")
+
+    # Add Colorbar
+    cbar = fig.colorbar(cax, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("Pearson Correlation Coefficient (r)", rotation=270, labelpad=15, fontsize=10, fontweight="bold", color=PALETTE["text"])
+    cbar.ax.tick_params(labelsize=9, colors=PALETTE["text"])
+
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=15, color=PALETTE["text"])
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path

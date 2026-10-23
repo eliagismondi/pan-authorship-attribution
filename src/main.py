@@ -1,19 +1,15 @@
 """
 main.py
 -------
-Main execution script for 'Punto 1: Data Understanding & Literature (Days 1-2)'.
-
-Executes:
-1. Literature review summary & task setup
-2. Initial Inspection: N records, k classes (binary, candidate authors, genres), sample preview
-3. Data Quality & Balance Audit: programmatic checks for corruption, missing fields, duplicates
-4. Stylometric Exploratory Extraction: length variance, TTR, punctuation density, n-grams
-5. Export of all presentation-ready charts to reports/figures/
+Execution pipeline for:
+- Stage 1: Data Understanding & Exploratory Analysis (Points 1, 2, 3, 4, 8, 10, 11, 12)
+- Stage 2: Baseline Feature Extraction into Vector Space (Points 6, 7)
 """
 
+import argparse
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -27,18 +23,24 @@ from src.data_utils import (
     present_sample_records,
     evaluate_data_quality,
     extract_exploratory_features,
+    iter_jsonl,
 )
-from src.visualization import (
-    plot_binary_class_balance,
-    plot_author_model_distribution,
-    plot_genre_distribution,
-    plot_text_length_distribution,
-    plot_stylometric_distributions,
-    plot_top_ngrams,
+from src.feature_extraction import (
+    create_baseline_pipeline,
+    StylometricFeatureExtractor,
+    FunctionWordExtractor,
 )
 
 
 def run_punto_uno_pipeline():
+    from src.visualization import (
+        plot_binary_class_balance,
+        plot_author_model_distribution,
+        plot_genre_distribution,
+        plot_text_length_distribution,
+        plot_stylometric_distributions,
+        plot_top_ngrams,
+    )
     start_time = time.time()
     print("=" * 75)
     print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
@@ -148,10 +150,232 @@ def run_punto_uno_pipeline():
     print(f"  [+] Saved: {p6.name}")
 
     total_elapsed = time.time() - start_time
-    print(f"\nPipeline successfully completed in {total_elapsed:.2f}s!")
+    print(f"\nStage 1 successfully completed in {total_elapsed:.2f}s!")
     print(f"All figures exported to: {figures_dir}")
     print("=" * 75)
 
 
+def run_baseline_extraction_pipeline(max_records: int = 1000):
+    """
+    Executes Baseline Extraction (Points 6, 7):
+    Transforms raw texts into a numerical vector space based on features
+    identified in the literature review.
+    """
+    start_time = time.time()
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   STAGE 2: BASELINE VECTOR SPACE EXTRACTION (POINTS 6, 7)")
+    print("=" * 75)
+
+    train_path = find_default_train_path()
+    if not train_path or not train_path.exists():
+        print(f"[ERROR] Training dataset not found in data/raw/*/")
+        return
+
+    print(f"\n[1] STREAMING RECORDS FROM CORPUS")
+    texts = []
+    labels = []
+    models = []
+    for i, rec in enumerate(iter_jsonl(train_path)):
+        if max_records and i >= max_records:
+            break
+        texts.append(rec["text"])
+        labels.append(rec["label"])
+        models.append(rec.get("model", "unknown"))
+
+    print(f"  -> Loaded {len(texts):,} records for numerical vectorization")
+
+    # 2. Initialize and Fit Pipeline
+    print(f"\n[2] INITIALIZING MULTI-LEVEL FEATURE EXTRACTION PIPELINE")
+    print("  Feature Spaces Configured:")
+    print("    * 1. Stylometric & Lexical Richness: TTR, Guiraud's R, Yule's K, Simpson's D,")
+    print("         Hapax/Dislegomena ratios, Punctuation density, Sentence/Word lengths (24 dims)")
+    print("    * 2. Topic-Invariant Function Words: Relative frequencies of 70 closed-class terms")
+    print("    * 3. Character N-Grams: 3-to-4-grams boundary-aware TF-IDF (3,000 max dims)")
+    print("    * 4. Word N-Grams: 1-to-2-grams lexical TF-IDF with function words (1,500 max dims)")
+
+    pipeline = create_baseline_pipeline(
+        char_max_features=3000,
+        word_max_features=1500,
+        include_word_ngrams=True,
+    )
+
+    t0 = time.time()
+    X = pipeline.fit_transform(texts)
+    fit_transform_time = time.time() - t0
+
+    feature_names = pipeline.get_feature_names_out()
+    total_dims = len(feature_names)
+    sparsity = 100.0 * (1.0 - (X.nnz / (X.shape[0] * X.shape[1])))
+
+    print(f"\n[3] NUMERICAL VECTOR SPACE SUMMARY (Points 6, 7)")
+    print(f"  * Resulting Feature Matrix Shape: {X.shape[0]:,} rows x {X.shape[1]:,} dimensions")
+    print(f"  * Matrix Representation: {type(X).__name__} (Compressed Sparse Row)")
+    print(f"  * Sparsity: {sparsity:.2f}% (Dense values: {X.nnz:,})")
+    print(f"  * Extraction Throughput: {len(texts) / fit_transform_time:.1f} texts/second")
+    print(f"  * Elapsed Time: {fit_transform_time:.2f} seconds")
+
+    # Breakdown by family
+    sty_count = sum(1 for f in feature_names if f.startswith("stylometry__"))
+    func_count = sum(1 for f in feature_names if f.startswith("func_word__"))
+    char_count = sum(1 for f in feature_names if f.startswith("char_ngram__"))
+    word_count = sum(1 for f in feature_names if f.startswith("word_ngram__"))
+
+    print(f"\n  Breakdown by Feature Family:")
+    print(f"    - Stylometric Dimensions: {sty_count}")
+    print(f"    - Function Words Dimensions: {func_count}")
+    print(f"    - Character N-Gram Dimensions: {char_count}")
+    print(f"    - Word N-Gram Dimensions: {word_count}")
+    print(f"    - Total Feature Dimensions: {total_dims}")
+
+    print(f"\n[4] SAMPLE DIMENSION INSPECTION")
+    print(f"  First 8 Stylometric Dimensions:")
+    for fn in feature_names[:8]:
+        print(f"    • {fn}")
+    print(f"  Sample Function Word Dimensions:")
+    for fn in [f for f in feature_names if f.startswith("func_word__")][:5]:
+        print(f"    • {fn}")
+    print(f"  Sample Character N-gram Dimensions:")
+    for fn in [f for f in feature_names if f.startswith("char_ngram__")][:5]:
+        print(f"    • {fn}")
+
+    total_elapsed = time.time() - start_time
+    print(f"\nStage 2 completed in {total_elapsed:.2f}s!")
+    print("=" * 75)
+    return X, pipeline
+
+
+def run_point_13_advanced_derivation(n_samples: int = 2500):
+    """
+    Executes Advanced Feature Derivation & Correlation Analysis (Point 13):
+    1. Derives custom features (word-to-sentence ratio, punctuation density, expressive ratios, etc.)
+    2. Calculates empirical Pearson correlation with target output y (Human=0, AI=1)
+    3. Analyzes inter-feature collinearity
+    4. Generates publication-ready correlation heatmap in reports/figures/correlation_heatmap.png
+    """
+    start_time = time.time()
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   STAGE 3: ADVANCED FEATURE DERIVATION & COLLINEARITY (POINT 13)")
+    print("=" * 75)
+
+    import pandas as pd
+    from src.visualization import plot_correlation_heatmap
+
+    figures_dir = ROOT_DIR / "reports" / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    train_path = find_default_train_path()
+    if not train_path or not train_path.exists():
+        print(f"[ERROR] Training dataset not found in data/raw/*/")
+        return
+
+    print(f"\n[1] STREAMING RECORDS FOR ADVANCED FEATURE DERIVATION")
+    texts = []
+    targets = []
+    authors = []
+    for i, rec in enumerate(iter_jsonl(train_path)):
+        if n_samples and i >= n_samples:
+            break
+        texts.append(rec["text"])
+        targets.append(rec["label"])
+        authors.append(rec.get("model", "unknown"))
+
+    print(f"  -> Extracted {len(texts):,} records for correlation analysis")
+
+    # 2. Extract Stylometric & Advanced Derived Features
+    print(f"\n[2] COMPUTING ADVANCED CUSTOM DERIVED FEATURES (Point 13)")
+    extractor = StylometricFeatureExtractor()
+    X_dense = extractor.transform(texts)
+    feature_names = extractor.FEATURE_NAMES
+
+    df = pd.DataFrame(X_dense, columns=feature_names)
+    df["target_is_ai"] = targets
+
+    # Focus subset containing all newly derived custom features and primary stylometric anchors
+    key_features = [
+        # Point 13 newly derived:
+        "ratio_word_to_sentence_len",
+        "punct_density",
+        "syntactic_pause_ratio",
+        "expressive_punct_ratio",
+        "functional_lexical_ratio",
+        "brunet_w",
+        "honore_r",
+        # Core stylometric anchors:
+        "ttr",
+        "yule_k",
+        "avg_word_len",
+        "avg_sentence_len",
+        "comma_density",
+        "dash_density",
+        "quote_density",
+        "digit_density",
+        "target_is_ai",
+    ]
+
+    df_focus = df[key_features]
+    corr_matrix = df_focus.corr(method="pearson")
+
+    # 3. Target Correlation Ranking
+    print(f"\n[3] CORRELATION WITH TARGET OUTPUT y (Author Identity / AI Class)")
+    print("  (Positive r = higher in AI; Negative r = higher in Human)")
+    print("  " + "-" * 60)
+    target_corr = corr_matrix["target_is_ai"].drop("target_is_ai").sort_values(ascending=False)
+    for feat, r in target_corr.items():
+        direction = "AI-skewed" if r > 0 else "Human-skewed"
+        print(f"    • {feat:<30} : r = {r:+.4f}  ({direction})")
+    print("  " + "-" * 60)
+
+    # 4. Collinearity Inspection (|r| >= 0.60)
+    print(f"\n[4] INTER-FEATURE COLLINEARITY INSPECTION (|r| >= 0.60)")
+    high_corr_pairs = []
+    features_only = [f for f in key_features if f != "target_is_ai"]
+    for i in range(len(features_only)):
+        for j in range(i + 1, len(features_only)):
+            f1, f2 = features_only[i], features_only[j]
+            r_val = corr_matrix.loc[f1, f2]
+            if abs(r_val) >= 0.60:
+                high_corr_pairs.append((f1, f2, r_val))
+
+    high_corr_pairs.sort(key=lambda x: abs(x[2]), reverse=True)
+    if high_corr_pairs:
+        for f1, f2, r_val in high_corr_pairs:
+            print(f"    ⚠️ Collinear Pair: {f1} <-> {f2}  (r = {r_val:+.4f})")
+    else:
+        print("    No severe inter-feature collinearity detected among selected features.")
+
+    # 5. Export Correlation Heatmap
+    print(f"\n[5] EXPORTING CORRELATION HEATMAP FIGURE")
+    heatmap_path = figures_dir / "correlation_heatmap.png"
+    plot_correlation_heatmap(corr_matrix, heatmap_path, title="Stylometric Feature Collinearity & Target Correlation Matrix (Point 13)")
+    print(f"  [+] Saved publication-ready heatmap: {heatmap_path}")
+
+    total_elapsed = time.time() - start_time
+    print(f"\nStage 3 completed in {total_elapsed:.2f}s!")
+    print("=" * 75)
+    return corr_matrix
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PAN Authorship Attribution & GenAI Pipeline")
+    parser.add_argument("--stage", choices=["1", "2", "3", "all"], default="all",
+                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3' (Point 13 Derivations), 'all'")
+    parser.add_argument("--records", type=int, default=1000,
+                        help="Number of records to vectorize in Stage 2/3 (default: 1000; use 0 for full train set)")
+    args = parser.parse_args()
+
+    max_rec = None if args.records == 0 else args.records
+
+    if args.stage in ["1", "all"]:
+        run_punto_uno_pipeline()
+
+    if args.stage in ["2", "all"]:
+        run_baseline_extraction_pipeline(max_records=max_rec)
+
+    if args.stage in ["3", "all"]:
+        run_point_13_advanced_derivation(n_samples=max_rec or 2500)
+
+
 if __name__ == "__main__":
-    run_punto_uno_pipeline()
+    main()
