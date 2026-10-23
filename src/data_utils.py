@@ -1,20 +1,48 @@
+"""
+data_utils.py
+-------------
+Core utilities for loading, inspecting, evaluating data quality, and extracting
+stylometric features for PAN authorship attribution and generative AI detection.
+
+Designed to fulfill:
+- Point 1, 2, 8: Initial inspection (N, k, sample rows inspection)
+- Point 3, 4, 12: Data quality & integrity checks, missing value audit, class balance
+- Point 10, 11: Stylometric feature extraction foundations (TTR, punctuation, n-grams)
+"""
+
 import json
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Iterable, Tuple, Optional, Dict, Any, List
+import re
+from typing import Iterable, Tuple, Optional, Dict, Any, List, Union
 from collections import Counter
 
-# Optional import; only needed for plotting
-try:
-    import matplotlib.pyplot as plt
-except Exception:  # matplotlib may not be installed in some environments
-    plt = None  # type: ignore
+# Standard common stopwords for lexical/n-gram filtering
+STOPWORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
+    "aren't", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both",
+    "but", "by", "can't", "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't",
+    "doing", "don't", "down", "during", "each", "few", "for", "from", "further", "had", "hadn't",
+    "has", "hasn't", "have", "haven't", "having", "he", "he'd", "he'll", "he's", "her", "here",
+    "here's", "hers", "herself", "him", "himself", "his", "how", "how's", "i", "i'd", "i'll",
+    "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's",
+    "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once",
+    "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "same",
+    "shan't", "she", "she'd", "she'll", "she's", "should", "shouldn't", "so", "some", "such",
+    "than", "that", "that's", "the", "their", "theirs", "them", "themselves", "then", "there",
+    "there's", "these", "they", "they'd", "they'll", "they're", "they've", "this", "those",
+    "through", "to", "too", "under", "until", "up", "very", "was", "wasn't", "we", "we'd",
+    "we'll", "we're", "we've", "were", "weren't", "what", "what's", "when", "when's", "where",
+    "where's", "which", "while", "who", "who's", "whom", "why", "why's", "with", "won't",
+    "would", "wouldn't", "you", "you'd", "you'll", "you're", "you've", "your", "yours",
+    "yourself", "yourselves"
+}
 
 
-def iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
+def iter_jsonl(path: Union[str, Path]) -> Iterable[Dict[str, Any]]:
     """
     Stream records from a JSON Lines (.jsonl) file.
-    Skips empty lines. Raises if a line is not valid JSON.
+    Skips empty lines. Raises JSONDecodeError if a line is corrupted.
     """
     path = Path(path)
     with path.open('r', encoding='utf-8') as f:
@@ -26,78 +54,152 @@ def iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def dataset_stats(
-    path: Path,
-    label_field_candidates: Tuple[str, ...] = ("author", "label", "class", "y"),
+    path: Union[str, Path],
+    label_field_candidates: Tuple[str, ...] = ("label", "class", "y"),
+    author_field_candidates: Tuple[str, ...] = ("model", "author", "author_id"),
 ) -> Tuple[int, int, Optional[str]]:
     """
-    Compute dataset statistics from a JSONL file.
+    Compute dataset statistics from a JSONL file in a single streaming pass.
 
     Returns a tuple: (N, k, used_label_field)
     - N: total number of records
-    - k: number of unique classes based on the first label field found among candidates
-    - used_label_field: the name of the label field used (None if none found)
+    - k: number of unique classes based on the first label field found
+    - used_label_field: the name of the label field used
     """
-    labels: List[Any] = []
+    path = Path(path)
+    labels = set()
     used_field: Optional[str] = None
+    count = 0
 
-    i = -1
-    for i, rec in enumerate(iter_jsonl(path)):
+    for rec in iter_jsonl(path):
+        count += 1
         if used_field is None:
-            # detect label field on the first record that has any of the candidates
             for f in label_field_candidates:
                 if f in rec:
                     used_field = f
                     break
-        if used_field is not None and used_field in rec:
-            labels.append(rec[used_field])
+        if used_field and used_field in rec:
+            val = rec[used_field]
+            labels.add(val if isinstance(val, (int, str, float, bool)) else json.dumps(val))
 
-    N = i + 1 if i >= 0 else 0
-    if used_field is None:
-        # No label field found; k is undefined → 0
-        return N, 0, None
-
-    # Compute unique classes; robustly handle hashable/non-hashable labels
-    try:
-        k = len(set(labels))
-    except TypeError:
-        # Fallback for unhashable labels (e.g., lists): convert to JSON strings
-        k = len(set(json.dumps(l, sort_keys=True) for l in labels))
-
+    N = count
+    k = len(labels)
     return N, k, used_field
 
 
+def inspect_dataset_structure(path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Thoroughly inspect the dataset structure, returning counts for:
+    - N (total records)
+    - Binary classes k_binary (e.g. Human vs AI, 'label')
+    - Candidate authors / generative models k_authors ('model')
+    - Genre domains k_genres ('genre')
+    - Counters for all targets
+    """
+    path = Path(path)
+    total_records = 0
+    label_counts: Counter = Counter()
+    model_counts: Counter = Counter()
+    genre_counts: Counter = Counter()
+    keys_found = set()
+
+    for rec in iter_jsonl(path):
+        total_records += 1
+        if total_records == 1:
+            keys_found = set(rec.keys())
+
+        if "label" in rec:
+            label_counts[rec["label"]] += 1
+        if "model" in rec:
+            model_counts[rec["model"]] += 1
+        if "genre" in rec:
+            genre_counts[rec["genre"]] += 1
+
+    return {
+        "path": str(path),
+        "total_records_N": total_records,
+        "k_labels": len(label_counts),
+        "k_models_authors": len(model_counts),
+        "k_genres": len(genre_counts),
+        "keys": sorted(list(keys_found)),
+        "label_distribution": dict(label_counts),
+        "model_distribution": dict(model_counts.most_common()),
+        "genre_distribution": dict(genre_counts.most_common()),
+    }
+
+
+def present_sample_records(
+    path: Union[str, Path],
+    n_samples: int = 3,
+    max_text_chars: int = 240,
+) -> List[Dict[str, Any]]:
+    """
+    Extract a clean, formatted sample of records showing author/model ID,
+    label, genre, and text preview (Points 1, 2, 8).
+    """
+    path = Path(path)
+    samples: List[Dict[str, Any]] = []
+
+    for i, rec in enumerate(iter_jsonl(path)):
+        if i >= n_samples:
+            break
+        text = rec.get("text", "")
+        preview = text[:max_text_chars] + ("..." if len(text) > max_text_chars else "")
+        samples.append({
+            "sample_index": i + 1,
+            "id": rec.get("id"),
+            "author_model": rec.get("model", "unknown"),
+            "label": rec.get("label"),
+            "label_name": "Human (0)" if rec.get("label") == 0 else "AI-Generated (1)",
+            "genre": rec.get("genre", "unknown"),
+            "total_chars": len(text),
+            "total_words": len(text.split()),
+            "text_preview": preview,
+        })
+    return samples
+
+
 def evaluate_data_quality(
-    path: Path,
-    text_field_candidates: Tuple[str, ...] = ("text", "content", "body", "x", "document"),
+    path: Union[str, Path],
+    text_field: str = "text",
+    expected_fields: Tuple[str, ...] = ("id", "text", "model", "label", "genre"),
 ) -> Dict[str, Any]:
     """
-    Evaluate overall data quality focusing on text fields.
+    Evaluate overall data quality in a single streaming pass (Points 3, 4, 12).
 
     Checks:
-    - Corrupted JSON lines (cannot be parsed)
-    - Missing text field
-    - Empty / whitespace-only / None texts
-    - Non-string text fields
-
-    Returns a dictionary with counts and the chosen text field name.
+    - Corrupted JSON lines (syntax decode errors)
+    - Missing required fields
+    - Empty, whitespace-only, or non-string texts
+    - Duplicate record IDs
+    - Duplicate text bodies
+    - Extreme length outliers (e.g. texts < 10 words)
     """
     path = Path(path)
     total_lines = 0
     parsed_records = 0
     corrupted_lines = 0
-    missing_text = 0
-    empty_text = 0
-    non_string_text = 0
 
-    used_text_field: Optional[str] = None
+    missing_fields_counts: Dict[str, int] = {f: 0 for f in expected_fields}
+    empty_text_count = 0
+    non_string_text_count = 0
+    short_text_count = 0  # < 10 words
 
-    with path.open('r', encoding='utf-8') as f:
+    seen_ids = set()
+    duplicate_id_count = 0
+
+    seen_texts = set()
+    duplicate_text_count = 0
+
+    word_counts: List[int] = []
+
+    with path.open("r", encoding="utf-8") as f:
         for raw in f:
             total_lines += 1
             line = raw.strip()
             if not line:
-                # treat as parsed empty line; skip
                 continue
+
             try:
                 rec = json.loads(line)
                 parsed_records += 1
@@ -105,139 +207,207 @@ def evaluate_data_quality(
                 corrupted_lines += 1
                 continue
 
-            # determine text field on the first suitable record
-            if used_text_field is None:
-                for tf in text_field_candidates:
-                    if tf in rec:
-                        used_text_field = tf
-                        break
+            # Check expected schema fields
+            for ef in expected_fields:
+                if ef not in rec or rec[ef] is None:
+                    missing_fields_counts[ef] += 1
 
-            if used_text_field is None or used_text_field not in rec:
-                missing_text += 1
-                continue
+            # Check duplicate ID
+            rec_id = rec.get("id")
+            if rec_id:
+                if rec_id in seen_ids:
+                    duplicate_id_count += 1
+                else:
+                    seen_ids.add(rec_id)
 
-            val = rec[used_text_field]
-            if val is None:
-                empty_text += 1
-            elif isinstance(val, str):
-                if val.strip() == "":
-                    empty_text += 1
+            # Check text validity
+            text_val = rec.get(text_field)
+            if text_val is None:
+                empty_text_count += 1
+            elif not isinstance(text_val, str):
+                non_string_text_count += 1
             else:
-                non_string_text += 1
+                stripped = text_val.strip()
+                if not stripped:
+                    empty_text_count += 1
+                else:
+                    words = stripped.split()
+                    w_len = len(words)
+                    word_counts.append(w_len)
+                    if w_len < 10:
+                        short_text_count += 1
+
+                    # Hash text to check duplicate contents efficiently
+                    thash = hash(stripped)
+                    if thash in seen_texts:
+                        duplicate_text_count += 1
+                    else:
+                        seen_texts.add(thash)
+
+    min_words = min(word_counts) if word_counts else 0
+    max_words = max(word_counts) if word_counts else 0
+    mean_words = sum(word_counts) / len(word_counts) if word_counts else 0
 
     return {
         "path": str(path),
-        "total_lines": total_lines,
+        "total_lines_read": total_lines,
         "total_records_parsed": parsed_records,
         "corrupted_lines": corrupted_lines,
-        "used_text_field": used_text_field,
-        "missing_text_count": missing_text,
-        "empty_text_count": empty_text,
-        "non_string_text_count": non_string_text,
+        "missing_fields": missing_fields_counts,
+        "empty_text_count": empty_text_count,
+        "non_string_text_count": non_string_text_count,
+        "duplicate_id_count": duplicate_id_count,
+        "duplicate_text_count": duplicate_text_count,
+        "short_text_outliers": short_text_count,
+        "min_word_count": min_words,
+        "max_word_count": max_words,
+        "mean_word_count": round(mean_words, 2),
+        "data_integrity_status": "EXCELLENT" if (corrupted_lines == 0 and empty_text_count == 0 and duplicate_id_count == 0) else "NEEDS_CLEANING",
     }
 
 
-def compute_label_counts(
-    path: Path,
-    label_field_candidates: Tuple[str, ...] = ("author", "label", "class", "y"),
-) -> Tuple[Counter, Optional[str]]:
+def extract_exploratory_features(
+    path: Union[str, Path],
+    max_records: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Compute counts per label (e.g., per author). Returns (Counter, used_label_field).
-    Skips records without the chosen label field once it is determined.
-    """
-    counts: Counter = Counter()
-    used_field: Optional[str] = None
+    Extract key exploratory stylometric features and n-grams across classes (Point 10, 11).
 
+    Computes:
+    - Text lengths (words and characters) separated by Human vs AI
+    - Type-Token Ratio (TTR: lexical richness)
+    - Punctuation density (punctuation marks / total chars)
+    - Average word length
+    - Function word / stopword ratio
+    - Most frequent unigrams and bigrams per class (top 20)
+    """
+    path = Path(path)
+    word_pattern = re.compile(r"\b[a-zA-Z]+\b")
+    punct_pattern = re.compile(r"[^\w\s]")
+
+    data: Dict[str, Dict[str, List[float]]] = {
+        "Human": {"word_counts": [], "char_counts": [], "ttr": [], "punct_density": [], "avg_word_len": []},
+        "AI": {"word_counts": [], "char_counts": [], "ttr": [], "punct_density": [], "avg_word_len": []},
+    }
+
+    unigrams: Dict[str, Counter] = {"Human": Counter(), "AI": Counter()}
+    bigrams: Dict[str, Counter] = {"Human": Counter(), "AI": Counter()}
+
+    count = 0
     for rec in iter_jsonl(path):
-        if used_field is None:
-            for f in label_field_candidates:
-                if f in rec:
-                    used_field = f
-                    break
-        if used_field is None:
+        count += 1
+        if max_records and count > max_records:
+            break
+
+        text = rec.get("text", "")
+        if not text:
             continue
-        if used_field in rec:
-            counts[rec[used_field]] += 1
 
-    return counts, used_field
+        label_key = "Human" if rec.get("label") == 0 else "AI"
+        chars = len(text)
+        words = word_pattern.findall(text.lower())
+        n_words = len(words)
+        if n_words == 0:
+            continue
 
+        # Stylometric metrics
+        ttr = len(set(words)) / n_words
+        puncts = len(punct_pattern.findall(text))
+        punct_density = puncts / max(1, chars)
+        avg_word_len = sum(len(w) for w in words) / n_words
 
-def plot_class_balance(
-    label_counts: Counter,
-    title: str,
-    output_path: Path,
-    rotate_labels: bool = False,
-) -> Optional[Path]:
-    """
-    Generate and save a bar chart for class distribution.
+        target = data[label_key]
+        target["word_counts"].append(n_words)
+        target["char_counts"].append(chars)
+        target["ttr"].append(ttr)
+        target["punct_density"].append(punct_density)
+        target["avg_word_len"].append(avg_word_len)
 
-    Returns the path to the saved figure, or None if plotting is unavailable.
-    """
-    if plt is None:
-        return None
+        # N-grams (filter pure stopwords for unigrams to show content/stylistic words, or keep function words)
+        unigrams[label_key].update([w for w in words if w not in STOPWORDS])
+        bigram_pairs = [f"{w1} {w2}" for w1, w2 in zip(words[:-1], words[1:])]
+        bigrams[label_key].update(bigram_pairs)
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_stats = {}
+    for group in ["Human", "AI"]:
+        group_data = data[group]
+        n_grp = len(group_data["word_counts"])
+        summary_stats[group] = {
+            "record_count": n_grp,
+            "mean_word_count": round(sum(group_data["word_counts"]) / max(1, n_grp), 2),
+            "mean_char_count": round(sum(group_data["char_counts"]) / max(1, n_grp), 2),
+            "mean_ttr": round(sum(group_data["ttr"]) / max(1, n_grp), 4),
+            "mean_punct_density": round(sum(group_data["punct_density"]) / max(1, n_grp), 4),
+            "mean_avg_word_len": round(sum(group_data["avg_word_len"]) / max(1, n_grp), 3),
+        }
 
-    labels, values = zip(*label_counts.most_common()) if label_counts else ([], [])
-
-    plt.figure(figsize=(max(6, min(16, 0.35 * max(5, len(labels)))), 6))
-    bars = plt.bar(range(len(labels)), values, color="#4C78A8")
-    plt.title(title)
-    plt.xlabel("Class")
-    plt.ylabel("Count")
-    plt.xticks(range(len(labels)), [str(l) for l in labels], rotation=45 if (rotate_labels or len(labels) > 10) else 0, ha='right')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150)
-    plt.close()
-    return output_path
+    return {
+        "raw_distributions": data,
+        "summary_statistics": summary_stats,
+        "top_unigrams": {
+            "Human": unigrams["Human"].most_common(20),
+            "AI": unigrams["AI"].most_common(20),
+        },
+        "top_bigrams": {
+            "Human": bigrams["Human"].most_common(20),
+            "AI": bigrams["AI"].most_common(20),
+        },
+    }
 
 
 def find_default_train_path() -> Optional[Path]:
-    """Try to locate a default training JSONL file under data/raw/*/train.jsonl."""
-    root = Path(__file__).resolve().parents[1]  # project root
+    """Locate the training JSONL file under data/raw/*/train.jsonl."""
+    root = Path(__file__).resolve().parents[1]
     raw = root / "data" / "raw"
     if not raw.exists():
         return None
     for sub in raw.iterdir():
-        candidate = sub / "train.jsonl"
-        if candidate.exists():
-            return candidate
+        if sub.is_dir():
+            candidate = sub / "train.jsonl"
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def find_default_val_path() -> Optional[Path]:
+    """Locate the validation JSONL file under data/raw/*/val.jsonl."""
+    root = Path(__file__).resolve().parents[1]
+    raw = root / "data" / "raw"
+    if not raw.exists():
+        return None
+    for sub in raw.iterdir():
+        if sub.is_dir():
+            candidate = sub / "val.jsonl"
+            if candidate.exists():
+                return candidate
     return None
 
 
 if __name__ == "__main__":
     train_path = find_default_train_path()
-    if train_path is None:
-        print("No default train.jsonl found under data/raw/*/")
+    if not train_path:
+        print("Default train.jsonl not found.")
     else:
-        print(f"Dataset: {train_path}")
+        print(f"=== INITIAL INSPECTION (Points 1, 2, 8) ===")
+        stats = inspect_dataset_structure(train_path)
+        print(f"Dataset path: {stats['path']}")
+        print(f"Total records (N): {stats['total_records_N']:,}")
+        print(f"Binary classes (k): {stats['k_labels']} -> {stats['label_distribution']}")
+        print(f"Candidate authors / models (k): {stats['k_models_authors']}")
+        print(f"Genres (k): {stats['k_genres']} -> {stats['genre_distribution']}")
 
-        # Basic stats
-        N, k, field = dataset_stats(train_path)
-        print(f"Total records (N): {N}")
-        if field:
-            print(f"Number of classes (k) based on '{field}': {k}")
-        else:
-            print("No label field found; k=0")
+        print(f"\n=== SAMPLE ROWS (Points 1, 2, 8) ===")
+        samples = present_sample_records(train_path, n_samples=2)
+        for s in samples:
+            print(f"[{s['sample_index']}] ID: {s['id']} | Author/Model: {s['author_model']} | Label: {s['label_name']} | Genre: {s['genre']}")
+            print(f"    Words: {s['total_words']} | Chars: {s['total_chars']}")
+            print(f"    Preview: \"{s['text_preview']}\"")
 
-        # Data quality evaluation
+        print(f"\n=== DATA QUALITY & INTEGRITY (Points 3, 4, 12) ===")
         dq = evaluate_data_quality(train_path)
-        print("Data quality checks:")
-        print(f"  Parsed records: {dq['total_records_parsed']} of {dq['total_lines']} lines; corrupted lines: {dq['corrupted_lines']}")
-        print(f"  Text field used: {dq['used_text_field']}")
-        print(f"  Missing text field: {dq['missing_text_count']}")
-        print(f"  Empty/None texts: {dq['empty_text_count']}")
-        print(f"  Non-string texts: {dq['non_string_text_count']}")
-
-        # Class balance plot
-        counts, used_label = compute_label_counts(train_path)
-        if counts and used_label is not None:
-            fig_path = Path(__file__).resolve().parents[1] / "reports" / "figures" / "class_balance_train.png"
-            saved = plot_class_balance(counts, title=f"Class balance by '{used_label}' (train)", output_path=fig_path)
-            if saved is not None:
-                print(f"Saved class balance figure to: {saved}")
-            else:
-                print("matplotlib not available; skipping class balance plot.")
-        else:
-            print("No label field found for class balance plot; skipping.")
+        print(f"Parsed records: {dq['total_records_parsed']} / {dq['total_lines_read']}")
+        print(f"Corrupted lines: {dq['corrupted_lines']}")
+        print(f"Empty texts: {dq['empty_text_count']}, Non-string: {dq['non_string_text_count']}")
+        print(f"Duplicate IDs: {dq['duplicate_id_count']}, Duplicate texts: {dq['duplicate_text_count']}")
+        print(f"Word length range: [{dq['min_word_count']} - {dq['max_word_count']}], Mean: {dq['mean_word_count']}")
+        print(f"Integrity Status: {dq['data_integrity_status']}")
