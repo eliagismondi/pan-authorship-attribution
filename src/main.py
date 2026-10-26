@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 import sys
 import time
+from typing import Optional, List, Dict, Tuple
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -357,12 +358,122 @@ def run_point_13_advanced_derivation(n_samples: int = 2500):
     return corr_matrix
 
 
+def run_point_10_feature_distributions(n_samples: Optional[int] = None):
+    """
+    Executes Feature Distributions (Point 10):
+    1. Generates histograms and KDE distribution plots showing key features (X) across the entire dataset.
+    2. Generates comparative boxplots showing key features (X) broken down among different candidate authors (Human vs AI models).
+    3. Exports publication-quality figures:
+       - reports/figures/feature_distributions_entire_dataset.png
+       - reports/figures/feature_distributions_by_author.png
+    """
+    start_time = time.time()
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   FEATURE DISTRIBUTIONS ACROSS DATASET & AUTHORS (POINT 10)")
+    print("=" * 75)
+
+    import pandas as pd
+    from src.visualization import (
+        plot_feature_distributions_entire_dataset,
+        plot_feature_distributions_by_author,
+    )
+
+    figures_dir = ROOT_DIR / "reports" / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    train_path = find_default_train_path()
+    if not train_path or not train_path.exists():
+        print(f"[ERROR] Training dataset not found in data/raw/*/")
+        return
+
+    print(f"\n[1] STREAMING RECORDS FOR POINT 10 FEATURE DISTRIBUTIONS")
+    texts = []
+    models = []
+    labels = []
+    genres = []
+    for i, rec in enumerate(iter_jsonl(train_path)):
+        if n_samples and i >= n_samples:
+            break
+        texts.append(rec.get("text", ""))
+        models.append(rec.get("model", "unknown"))
+        labels.append(rec.get("label", 0))
+        genres.append(rec.get("genre", "unknown"))
+
+    print(f"  -> Extracted {len(texts):,} texts for distribution analysis")
+
+    print(f"\n[2] COMPUTING FULL STYLOMETRIC FEATURE MATRIX (X)")
+    t0 = time.time()
+    extractor = StylometricFeatureExtractor()
+    X_dense = extractor.transform(texts)
+    feature_names = extractor.FEATURE_NAMES
+    elapsed_feat = time.time() - t0
+    print(f"  -> Extracted {X_dense.shape[1]} features across {X_dense.shape[0]:,} samples in {elapsed_feat:.2f}s")
+
+    df = pd.DataFrame(X_dense, columns=feature_names)
+    df["model"] = models
+    df["label"] = labels
+    df["genre"] = genres
+
+    key_features = [
+        ("word_count", "Text Length (Word Count)"),
+        ("ttr", "Type-Token Ratio (TTR)"),
+        ("avg_word_len", "Average Word Length"),
+        ("punct_density", "Punctuation Density"),
+        ("avg_sentence_len", "Average Sentence Length"),
+        ("functional_lexical_ratio", "Functional-to-Lexical Ratio"),
+    ]
+
+    print(f"\n[3] DESCRIPTIVE STATISTICS ACROSS THE ENTIRE DATASET (X)")
+    print("  " + "-" * 75)
+    print(f"  {'Feature':<28} | {'Mean':<8} | {'Std':<8} | {'Median':<8} | {'IQR':<8} | {'Skewness':<8}")
+    print("  " + "-" * 75)
+    for fkey, fname in key_features:
+        s = df[fkey].dropna()
+        q25, q75 = s.quantile(0.25), s.quantile(0.75)
+        iqr = q75 - q25
+        print(f"  {fname:<28} | {s.mean():<8.3f} | {s.std():<8.3f} | {s.median():<8.3f} | {iqr:<8.3f} | {s.skew():<8.3f}")
+    print("  " + "-" * 75)
+
+    print(f"\n[4] COMPARATIVE BREAKDOWN AMONG KEY AUTHORS (Human vs Top LLMs)")
+    top_models = ["human"] + [m for m in df["model"].value_counts().index if m != "human"][:5]
+    print("  " + "-" * 85)
+    print(f"  {'Author / Model':<20} | {'TTR':<8} | {'AvgWordLen':<10} | {'PunctDens':<10} | {'FuncLexRatio':<12} | {'AvgSentLen':<10}")
+    print("  " + "-" * 85)
+    for m in top_models:
+        sub = df[df["model"] == m]
+        print(f"  {m:<20} | {sub['ttr'].mean():<8.3f} | {sub['avg_word_len'].mean():<10.3f} | {sub['punct_density'].mean():<10.4f} | {sub['functional_lexical_ratio'].mean():<12.3f} | {sub['avg_sentence_len'].mean():<10.2f}")
+    print("  " + "-" * 85)
+
+    print(f"\n[5] GENERATING POINT 10 DELIVERABLES (reports/figures/)")
+    p1 = plot_feature_distributions_entire_dataset(
+        df,
+        figures_dir / "feature_distributions_entire_dataset.png",
+        title="Key Feature Distributions Across Entire Dataset (Point 10)",
+    )
+    print(f"  [+] Saved: {p1.name}")
+
+    p2 = plot_feature_distributions_by_author(
+        df,
+        figures_dir / "feature_distributions_by_author.png",
+        top_k_authors=11,
+        title="Key Feature Distributions Among Candidate Authors & Models (Point 10)",
+    )
+    print(f"  [+] Saved: {p2.name}")
+
+    total_elapsed = time.time() - start_time
+    print(f"\nPoint 10 successfully completed in {total_elapsed:.2f}s!")
+    print(f"Figures exported to: {figures_dir}")
+    print("=" * 75)
+    return df
+
+
 def main():
     parser = argparse.ArgumentParser(description="PAN Authorship Attribution & GenAI Pipeline")
-    parser.add_argument("--stage", choices=["1", "2", "3", "all"], default="all",
-                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3' (Point 13 Derivations), 'all'")
-    parser.add_argument("--records", type=int, default=1000,
-                        help="Number of records to vectorize in Stage 2/3 (default: 1000; use 0 for full train set)")
+    parser.add_argument("--stage", choices=["1", "2", "3", "10", "all"], default="all",
+                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3' (Point 13 Derivations), '10' (Point 10 Feature Distributions), 'all'")
+    parser.add_argument("--records", type=int, default=0,
+                        help="Number of records to vectorize (default: 0 for full train set)")
     args = parser.parse_args()
 
     max_rec = None if args.records == 0 else args.records
@@ -370,8 +481,11 @@ def main():
     if args.stage in ["1", "all"]:
         run_punto_uno_pipeline()
 
+    if args.stage in ["10", "all"]:
+        run_point_10_feature_distributions(n_samples=max_rec)
+
     if args.stage in ["2", "all"]:
-        run_baseline_extraction_pipeline(max_records=max_rec)
+        run_baseline_extraction_pipeline(max_records=max_rec or 1000)
 
     if args.stage in ["3", "all"]:
         run_point_13_advanced_derivation(n_samples=max_rec or 2500)

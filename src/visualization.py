@@ -441,3 +441,212 @@ def plot_correlation_heatmap(
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
+
+def plot_feature_distributions_entire_dataset(
+    df,
+    output_path: Path,
+    features: Optional[List[Tuple[str, str, str]]] = None,
+    title: str = "Key Feature Distributions Across the Entire Dataset (Point 10)",
+) -> Path:
+    """
+    Generate histograms with KDE density estimation and statistical summaries (Point 10)
+    to show the distribution of key features (X) across the entire dataset.
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if features is None:
+        features = [
+            ("word_count", "Text Length (Word Count)", "Words per Text"),
+            ("ttr", "Type-Token Ratio (TTR)", "Lexical Richness (Unique / Total)"),
+            ("avg_word_len", "Average Word Length", "Characters per Word"),
+            ("punct_density", "Punctuation Density", "Punctuation Marks / Total Chars"),
+            ("avg_sentence_len", "Average Sentence Length", "Words per Sentence"),
+            ("functional_lexical_ratio", "Functional-to-Lexical Ratio", "Grammatical / Content Words"),
+        ]
+
+    n_features = len(features)
+    n_cols = 3
+    n_rows = math.ceil(n_features / n_cols)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 4.8 * n_rows), dpi=160)
+    axes_flat = axes.flatten() if n_features > 1 else [axes]
+
+    for idx, (fkey, ftitle, xlabel) in enumerate(features):
+        ax = axes_flat[idx]
+        if fkey not in df.columns:
+            continue
+
+        raw_vals = df[fkey].dropna().values
+        if fkey in ["word_count", "avg_sentence_len"]:
+            clip_val = float(np.percentile(raw_vals, 99.5))
+            vals = raw_vals[raw_vals <= clip_val]
+        else:
+            vals = raw_vals
+
+        mean_val = float(np.mean(vals))
+        median_val = float(np.median(vals))
+        std_val = float(np.std(vals))
+        q25 = float(np.percentile(vals, 25))
+        q75 = float(np.percentile(vals, 75))
+        iqr = q75 - q25
+
+        # Histogram
+        n_bins = 40
+        ax.hist(
+            vals, bins=n_bins, density=True, color="#3B82F6", alpha=0.55, edgecolor="#2563EB", linewidth=0.7, zorder=2
+        )
+
+        # Smooth KDE curve
+        eval_pts = np.linspace(min(vals), max(vals), 150).tolist()
+        kde_vals = _kde_1d(vals.tolist(), eval_pts)
+        ax.plot(eval_pts, kde_vals, color="#1D4ED8", linewidth=2.0, zorder=3, label="KDE Density")
+
+        # Vertical statistical markers
+        ax.axvline(mean_val, color="#DC2626", linestyle="--", linewidth=1.8, zorder=4, label=f"Mean (μ={mean_val:.2f})")
+        ax.axvline(median_val, color="#15803D", linestyle="-.", linewidth=1.8, zorder=4, label=f"Median (M={median_val:.2f})")
+
+        # Summary box
+        stats_text = (
+            f"μ: {mean_val:.2f}\n"
+            f"σ: {std_val:.2f}\n"
+            f"Med: {median_val:.2f}\n"
+            f"IQR: {iqr:.2f}"
+        )
+        ax.text(
+            0.95, 0.72, stats_text, transform=ax.transAxes,
+            fontsize=8.5, verticalalignment="top", horizontalalignment="right",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#F8FAFC", edgecolor="#CBD5E1", alpha=0.9),
+            zorder=5, color=PALETTE["text"], family="monospace"
+        )
+
+        _setup_figure_style(ax, title=ftitle, xlabel=xlabel, ylabel="Probability Density")
+        ax.legend(loc="upper right", fontsize=8.0, framealpha=0.9)
+
+    for j in range(n_features, len(axes_flat)):
+        axes_flat[j].set_visible(False)
+
+    fig.suptitle(title, fontsize=14, fontweight="bold", y=0.995, color=PALETTE["text"])
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_feature_distributions_by_author(
+    df,
+    output_path: Path,
+    features: Optional[List[Tuple[str, str, str]]] = None,
+    top_k_authors: int = 11,
+    title: str = "Feature Distributions Among Different Candidate Authors / LLM Models (Point 10)",
+) -> Path:
+    """
+    Generate publication-ready boxplots comparing key feature distributions (X)
+    broken down among candidate authors (Human vs individual generative AI models) (Point 10).
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if "model" not in df.columns:
+        raise ValueError("DataFrame must contain 'model' column for author-level breakdown.")
+
+    # Select top authors by frequency, always keeping 'human' as the primary baseline
+    model_counts = df["model"].value_counts()
+    all_models = [m for m in model_counts.index if m != "human"]
+    selected_ai_models = all_models[:top_k_authors - 1]
+    authors_to_plot = ["human"] + selected_ai_models
+
+    df_filtered = df[df["model"].isin(authors_to_plot)].copy()
+
+    if features is None:
+        features = [
+            ("ttr", "Type-Token Ratio (TTR)", "Lexical Diversity (V / N)"),
+            ("punct_density", "Punctuation Density", "Marks / Total Characters"),
+            ("avg_word_len", "Average Word Length", "Characters per Word"),
+            ("functional_lexical_ratio", "Functional-to-Lexical Ratio", "Closed Class / Open Class"),
+            ("avg_sentence_len", "Average Sentence Length", "Words per Sentence"),
+            ("word_count", "Text Length (Word Count)", "Total Words"),
+        ]
+
+    n_features = len(features)
+    n_cols = 3
+    n_rows = math.ceil(n_features / n_cols)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 5.2 * n_rows), dpi=160)
+    axes_flat = axes.flatten() if n_features > 1 else [axes]
+
+    display_names = {
+        "human": "Human (Author)",
+        "gpt-4o": "GPT-4o",
+        "gpt-3.5-turbo": "GPT-3.5-Turbo",
+        "gpt-4o-mini": "GPT-4o-Mini",
+        "ministral-8b-instruct-2410": "Ministral-8B",
+        "gemini-2.0-flash": "Gemini-2.0-Flash",
+        "o3-mini": "OpenAI o3-Mini",
+        "gemini-1.5-pro": "Gemini-1.5-Pro",
+        "llama-3.1-8b-instruct": "LLaMA-3.1-8B",
+        "deepseek-r1-distill-qwen-32b": "DeepSeek-R1-32B",
+        "falcon3-10b-instruct": "Falcon3-10B",
+    }
+
+    # Order from bottom to top so Human appears at the top of the boxplot
+    ordered_authors = authors_to_plot[::-1]
+    tick_labels = [display_names.get(a, a) for a in ordered_authors]
+
+    for idx, (fkey, ftitle, xlabel) in enumerate(features):
+        ax = axes_flat[idx]
+        if fkey not in df.columns:
+            continue
+
+        data_by_author = []
+        for author in ordered_authors:
+            sub = df_filtered[df_filtered["model"] == author][fkey].dropna().values
+            if fkey in ["word_count", "avg_sentence_len"]:
+                q99 = np.percentile(sub, 99)
+                sub = sub[sub <= q99 * 1.2]
+            data_by_author.append(sub)
+
+        bp = ax.boxplot(
+            data_by_author,
+            vert=False,
+            patch_artist=True,
+            tick_labels=tick_labels,
+            widths=0.6,
+            medianprops=dict(color="#0F172A", linewidth=1.6),
+            boxprops=dict(linewidth=1.0),
+            whiskerprops=dict(color="#475569", linewidth=1.0),
+            capprops=dict(color="#475569", linewidth=1.0),
+            flierprops=dict(marker="o", markersize=2, alpha=0.25, markeredgecolor="none", markerfacecolor="#64748B"),
+        )
+
+        for patch, author in zip(bp["boxes"], ordered_authors):
+            if author == "human":
+                patch.set_facecolor(PALETTE["human"])
+                patch.set_alpha(0.85)
+                patch.set_edgecolor("#15803D")
+            else:
+                patch.set_facecolor(PALETTE["ai"])
+                patch.set_alpha(0.65)
+                patch.set_edgecolor("#1D4ED8")
+
+        _setup_figure_style(ax, title=ftitle, xlabel=xlabel)
+        ax.tick_params(axis="y", labelsize=8.5)
+
+    for j in range(n_features, len(axes_flat)):
+        axes_flat[j].set_visible(False)
+
+    legend_elements = [
+        plt.Rectangle((0, 0), 1, 1, facecolor=PALETTE["human"], alpha=0.85, edgecolor="#15803D", label="Human Author"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=PALETTE["ai"], alpha=0.65, edgecolor="#1D4ED8", label="AI Generative Model"),
+    ]
+    fig.legend(handles=legend_elements, loc="upper right", bbox_to_anchor=(0.99, 0.995), framealpha=0.9, fontsize=10)
+
+    fig.suptitle(title, fontsize=14, fontweight="bold", y=0.995, color=PALETTE["text"])
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+

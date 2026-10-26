@@ -71,18 +71,26 @@ pan-authorship-attribution/
 ├── notebooks/
 │   └── 01_exploratory_analysis.ipynb   # Interactive Jupyter EDA & Presentation
 ├── reports/
+│   ├── 01_data_understanding_report.md
+│   ├── 02_baseline_feature_extraction_report.md
+│   ├── 03_advanced_derivation_report.md
+│   ├── 04_feature_distributions_point10_report.md
 │   └── figures/                        # Exported publication-ready figures
 │       ├── class_balance_binary.png
 │       ├── class_balance_authors.png
 │       ├── class_balance_genres.png
 │       ├── text_length_distribution.png
 │       ├── stylometric_distributions.png
-│       └── top_ngrams_comparison.png
+│       ├── top_ngrams_comparison.png
+│       ├── correlation_heatmap.png
+│       ├── feature_distributions_entire_dataset.png
+│       └── feature_distributions_by_author.png
 ├── src/
 │   ├── __init__.py
 │   ├── data_utils.py                   # Data ingestion, inspection & quality audit
+│   ├── feature_extraction.py           # Multi-level stylometric & baseline vectorizer
 │   ├── visualization.py                # Publication-quality charts & EDA visualizers
-│   └── main.py                         # Stage 1 execution pipeline orchestrator
+│   └── main.py                         # Complete pipeline orchestrator
 ├── requirements.txt
 └── README.md
 ```
@@ -91,14 +99,23 @@ pan-authorship-attribution/
 
 ## 6. How to Run the Analysis
 
-To execute the Stage 1 analysis and generate all figures:
+To execute the pipelines and generate all deliverables:
 
 ```bash
 # Activate your environment
 source .venv/bin/activate
 
-# Run the complete Punto 1 pipeline
-python src/main.py
+# Run Point 10: Feature Distributions Across Dataset & Authors
+python src/main.py --stage 10
+
+# Run Point 13: Advanced Feature Derivation & Collinearity Matrix
+python src/main.py --stage 3
+
+# Run Stage 2: Baseline Vector Space Feature Extraction
+python src/main.py --stage 2
+
+# Run the complete end-to-end pipeline (All Stages & Points)
+python src/main.py --stage all
 ```
 
 To run individual data utility checks:
