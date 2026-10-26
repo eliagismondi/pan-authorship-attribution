@@ -246,22 +246,27 @@ def run_baseline_extraction_pipeline(max_records: int = 1000):
     return X, pipeline
 
 
-def run_point_13_advanced_derivation(n_samples: int = 2500):
+def run_correlation_matrix_pipeline(n_samples: Optional[int] = None):
     """
-    Executes Advanced Feature Derivation & Correlation Analysis (Point 13):
+    Executes Correlation Matrix & Predictive Power Analysis (Points 9, 13):
     1. Derives custom features (word-to-sentence ratio, punctuation density, expressive ratios, etc.)
-    2. Calculates empirical Pearson correlation with target output y (Human=0, AI=1)
-    3. Analyzes inter-feature collinearity
-    4. Generates publication-ready correlation heatmap in reports/figures/correlation_heatmap.png
+    2. Calculates empirical Pearson correlation with target output y (Human=0, AI=1) to demonstrate predictive power.
+    3. Analyzes inter-feature collinearity (|r| >= 0.60) to detect variables measuring the same underlying construct.
+    4. Generates publication-ready figures:
+       - reports/figures/correlation_heatmap.png (Heatmap of collinearity and target correlation)
+       - reports/figures/feature_predictive_power_ranking.png (Predictive power ranking regarding output y)
     """
     start_time = time.time()
     print("=" * 75)
     print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
-    print("   STAGE 3: ADVANCED FEATURE DERIVATION & COLLINEARITY (POINT 13)")
+    print("   CORRELATION MATRIX, COLLINEARITY & PREDICTIVE POWER (POINTS 9, 13)")
     print("=" * 75)
 
     import pandas as pd
-    from src.visualization import plot_correlation_heatmap
+    from src.visualization import (
+        plot_correlation_heatmap,
+        plot_feature_predictive_power,
+    )
 
     figures_dir = ROOT_DIR / "reports" / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -271,7 +276,7 @@ def run_point_13_advanced_derivation(n_samples: int = 2500):
         print(f"[ERROR] Training dataset not found in data/raw/*/")
         return
 
-    print(f"\n[1] STREAMING RECORDS FOR ADVANCED FEATURE DERIVATION")
+    print(f"\n[1] STREAMING RECORDS FOR CORRELATION MATRIX (POINTS 9, 13)")
     texts = []
     targets = []
     authors = []
@@ -285,17 +290,19 @@ def run_point_13_advanced_derivation(n_samples: int = 2500):
     print(f"  -> Extracted {len(texts):,} records for correlation analysis")
 
     # 2. Extract Stylometric & Advanced Derived Features
-    print(f"\n[2] COMPUTING ADVANCED CUSTOM DERIVED FEATURES (Point 13)")
+    print(f"\n[2] COMPUTING FULL STYLOMETRIC & DERIVED FEATURE SPACE")
+    t0 = time.time()
     extractor = StylometricFeatureExtractor()
     X_dense = extractor.transform(texts)
     feature_names = extractor.FEATURE_NAMES
+    print(f"  -> Computed {X_dense.shape[1]} features across {X_dense.shape[0]:,} samples in {time.time()-t0:.2f}s")
 
     df = pd.DataFrame(X_dense, columns=feature_names)
     df["target_is_ai"] = targets
 
     # Focus subset containing all newly derived custom features and primary stylometric anchors
     key_features = [
-        # Point 13 newly derived:
+        # Points 9, 13 custom derived:
         "ratio_word_to_sentence_len",
         "punct_density",
         "syntactic_pause_ratio",
@@ -318,17 +325,18 @@ def run_point_13_advanced_derivation(n_samples: int = 2500):
     df_focus = df[key_features]
     corr_matrix = df_focus.corr(method="pearson")
 
-    # 3. Target Correlation Ranking
-    print(f"\n[3] CORRELATION WITH TARGET OUTPUT y (Author Identity / AI Class)")
+    # 3. Target Correlation Ranking (Predictive Power regarding Output y)
+    print(f"\n[3] PREDICTIVE POWER REGARDING TARGET OUTPUT y (Author Identity / AI Class)")
     print("  (Positive r = higher in AI; Negative r = higher in Human)")
-    print("  " + "-" * 60)
+    print("  " + "-" * 70)
     target_corr = corr_matrix["target_is_ai"].drop("target_is_ai").sort_values(ascending=False)
     for feat, r in target_corr.items():
-        direction = "AI-skewed" if r > 0 else "Human-skewed"
-        print(f"    • {feat:<30} : r = {r:+.4f}  ({direction})")
-    print("  " + "-" * 60)
+        direction = "Predictive of AI (r > 0)" if r > 0 else "Predictive of Human (r < 0)"
+        strength = "Strong" if abs(r) >= 0.40 else "Moderate" if abs(r) >= 0.20 else "Mild"
+        print(f"    • {feat:<30} : r = {r:+.4f}  [{strength} - {direction}]")
+    print("  " + "-" * 70)
 
-    # 4. Collinearity Inspection (|r| >= 0.60)
+    # 4. Collinearity Inspection (|r| >= 0.60: variables measuring the same metric)
     print(f"\n[4] INTER-FEATURE COLLINEARITY INSPECTION (|r| >= 0.60)")
     high_corr_pairs = []
     features_only = [f for f in key_features if f != "target_is_ai"]
@@ -342,20 +350,37 @@ def run_point_13_advanced_derivation(n_samples: int = 2500):
     high_corr_pairs.sort(key=lambda x: abs(x[2]), reverse=True)
     if high_corr_pairs:
         for f1, f2, r_val in high_corr_pairs:
-            print(f"    ⚠️ Collinear Pair: {f1} <-> {f2}  (r = {r_val:+.4f})")
+            print(f"    ⚠️ Collinear Pair: {f1:<28} <-> {f2:<24} (r = {r_val:+.4f})")
     else:
         print("    No severe inter-feature collinearity detected among selected features.")
 
-    # 5. Export Correlation Heatmap
-    print(f"\n[5] EXPORTING CORRELATION HEATMAP FIGURE")
+    # 5. Export Heatmap & Predictive Power Figures
+    print(f"\n[5] EXPORTING CORRELATION DELIVERABLES (reports/figures/)")
     heatmap_path = figures_dir / "correlation_heatmap.png"
-    plot_correlation_heatmap(corr_matrix, heatmap_path, title="Stylometric Feature Collinearity & Target Correlation Matrix (Point 13)")
-    print(f"  [+] Saved publication-ready heatmap: {heatmap_path}")
+    plot_correlation_heatmap(
+        corr_matrix,
+        heatmap_path,
+        title="Stylometric Feature Collinearity & Target Correlation Matrix (Points 9, 13)",
+    )
+    print(f"  [+] Saved: {heatmap_path.name}")
+
+    ranking_path = figures_dir / "feature_predictive_power_ranking.png"
+    plot_feature_predictive_power(
+        target_corr,
+        ranking_path,
+        title="Feature Predictive Power Regarding Target Output y (Points 9, 13)",
+    )
+    print(f"  [+] Saved: {ranking_path.name}")
 
     total_elapsed = time.time() - start_time
-    print(f"\nStage 3 completed in {total_elapsed:.2f}s!")
+    print(f"\nPoints 9 & 13 successfully completed in {total_elapsed:.2f}s!")
     print("=" * 75)
     return corr_matrix
+
+
+# Backward-compatible alias
+run_point_13_advanced_derivation = run_correlation_matrix_pipeline
+
 
 
 def run_point_10_feature_distributions(n_samples: Optional[int] = None):
@@ -470,8 +495,8 @@ def run_point_10_feature_distributions(n_samples: Optional[int] = None):
 
 def main():
     parser = argparse.ArgumentParser(description="PAN Authorship Attribution & GenAI Pipeline")
-    parser.add_argument("--stage", choices=["1", "2", "3", "10", "all"], default="all",
-                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3' (Point 13 Derivations), '10' (Point 10 Feature Distributions), 'all'")
+    parser.add_argument("--stage", choices=["1", "2", "3", "9", "10", "13", "all"], default="all",
+                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3'/'9'/'13' (Correlation Matrix & Collinearity), '10' (Point 10 Feature Distributions), 'all'")
     parser.add_argument("--records", type=int, default=0,
                         help="Number of records to vectorize (default: 0 for full train set)")
     args = parser.parse_args()
@@ -484,11 +509,11 @@ def main():
     if args.stage in ["10", "all"]:
         run_point_10_feature_distributions(n_samples=max_rec)
 
+    if args.stage in ["3", "9", "13", "all"]:
+        run_correlation_matrix_pipeline(n_samples=max_rec)
+
     if args.stage in ["2", "all"]:
         run_baseline_extraction_pipeline(max_records=max_rec or 1000)
-
-    if args.stage in ["3", "all"]:
-        run_point_13_advanced_derivation(n_samples=max_rec or 2500)
 
 
 if __name__ == "__main__":

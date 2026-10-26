@@ -75,6 +75,7 @@ pan-authorship-attribution/
 │   ├── 02_baseline_feature_extraction_report.md
 │   ├── 03_advanced_derivation_report.md
 │   ├── 04_feature_distributions_point10_report.md
+│   ├── 05_correlation_matrix_points_9_13_report.md
 │   └── figures/                        # Exported publication-ready figures
 │       ├── class_balance_binary.png
 │       ├── class_balance_authors.png
@@ -83,6 +84,7 @@ pan-authorship-attribution/
 │       ├── stylometric_distributions.png
 │       ├── top_ngrams_comparison.png
 │       ├── correlation_heatmap.png
+│       ├── feature_predictive_power_ranking.png
 │       ├── feature_distributions_entire_dataset.png
 │       └── feature_distributions_by_author.png
 ├── src/
@@ -105,11 +107,11 @@ To execute the pipelines and generate all deliverables:
 # Activate your environment
 source .venv/bin/activate
 
+# Run Points 9 & 13: Correlation Matrix, Collinearity & Predictive Power
+python src/main.py --stage 9
+
 # Run Point 10: Feature Distributions Across Dataset & Authors
 python src/main.py --stage 10
-
-# Run Point 13: Advanced Feature Derivation & Collinearity Matrix
-python src/main.py --stage 3
 
 # Run Stage 2: Baseline Vector Space Feature Extraction
 python src/main.py --stage 2

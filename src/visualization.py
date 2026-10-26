@@ -399,7 +399,7 @@ def plot_top_ngrams(
 def plot_correlation_heatmap(
     corr_df,
     output_path: Path,
-    title: str = "Stylometric Feature Collinearity & Target Correlation Matrix (Point 13)",
+    title: str = "Stylometric Feature Collinearity & Target Correlation Matrix (Points 9, 13)",
 ) -> Path:
     """
     Generate a publication-ready correlation heatmap showing:
@@ -437,6 +437,66 @@ def plot_correlation_heatmap(
     cbar.ax.tick_params(labelsize=9, colors=PALETTE["text"])
 
     ax.set_title(title, fontsize=13, fontweight="bold", pad=15, color=PALETTE["text"])
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_feature_predictive_power(
+    target_corr,
+    output_path: Path,
+    title: str = "Feature Predictive Power Regarding Target Output y (Points 9, 13)",
+) -> Path:
+    """
+    Generate horizontal bar chart showing each feature's correlation (predictive power)
+    with the target output y (Human = 0, AI = 1).
+    Visualizes positive association (AI markers) and negative association (Human markers).
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sorted_corr = target_corr.sort_values(ascending=True)
+    features = [f.replace("stylometry__", "").replace("_", " ") for f in sorted_corr.index]
+    values = sorted_corr.values
+
+    colors = [PALETTE["human"] if v < 0 else PALETTE["ai"] for v in values]
+
+    fig, ax = plt.subplots(figsize=(10, max(6, len(features) * 0.42)), dpi=160)
+    bars = ax.barh(features, values, color=colors, height=0.62, edgecolor="none", zorder=3)
+
+    for bar, val in zip(bars, values):
+        offset = 0.015 if val >= 0 else -0.015
+        ha = "left" if val >= 0 else "right"
+        text_color = PALETTE["ai"] if val >= 0 else PALETTE["human"]
+        ax.text(
+            val + offset,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:+.3f}",
+            ha=ha,
+            va="center",
+            fontsize=8.5,
+            fontweight="bold",
+            color=text_color,
+        )
+
+    ax.axvline(0, color="#94A3B8", linewidth=1.2, linestyle="-", zorder=2)
+    max_abs = max(abs(min(values)), abs(max(values))) * 1.25
+    ax.set_xlim(-max_abs, max_abs)
+
+    _setup_figure_style(
+        ax,
+        title=title,
+        xlabel="Pearson Correlation with Target Output y (Human = 0, AI = 1)",
+        ylabel="Extracted Stylometric Feature",
+    )
+
+    legend_elements = [
+        plt.Rectangle((0, 0), 1, 1, facecolor=PALETTE["human"], label="Predictive of Human Writing (r < 0)"),
+        plt.Rectangle((0, 0), 1, 1, facecolor=PALETTE["ai"], label="Predictive of AI Generation (r > 0)"),
+    ]
+    ax.legend(handles=legend_elements, loc="lower right", framealpha=0.9, fontsize=9.5)
+
     fig.tight_layout()
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
