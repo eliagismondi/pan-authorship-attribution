@@ -376,8 +376,7 @@ class BaselineFeaturePipeline:
             raise RuntimeError("Pipeline must be fitted before calling transform().")
 
         # 1. Dense stylometric & function features
-        sty_feat = self.stylometric_extractor.transform(texts)
-        func_feat = self.function_word_extractor.transform(texts)
+        sty_feat, func_feat = self._extract_dense_raw(texts)
         dense_feat = np.hstack([sty_feat, func_feat])
 
         if self.dense_scaler is not None:
@@ -395,10 +394,111 @@ class BaselineFeaturePipeline:
 
         return sp.hstack(matrices, format="csr")
 
+    def _extract_dense_raw(self, texts: Sequence[str]) -> Tuple[np.ndarray, np.ndarray]:
+        """Extracts unscaled stylometric and function-word matrices with NaN/Inf protection."""
+        sty_feat = np.nan_to_num(
+            self.stylometric_extractor.transform(texts), nan=0.0, posinf=0.0, neginf=0.0
+        )
+        func_feat = np.nan_to_num(
+            self.function_word_extractor.transform(texts), nan=0.0, posinf=0.0, neginf=0.0
+        )
+        return sty_feat, func_feat
+
     def fit_transform(self, texts: Sequence[str], y: Optional[Any] = None) -> sp.csr_matrix:
-        """Fits the pipeline on texts and immediately returns the feature matrix."""
-        self.fit(texts, y)
-        return self.transform(texts)
+        """Fits the pipeline on texts and returns the feature matrix in a single pass."""
+        X, _ = self.fit_transform_with_raw_dense(texts, y)
+        return X
+
+    def fit_transform_with_raw_dense(
+        self, texts: Sequence[str], y: Optional[Any] = None
+    ) -> Tuple[sp.csr_matrix, np.ndarray]:
+        """
+        Fits the pipeline on training texts in a single pass and returns:
+        - X_sparse: Combined CSR matrix (with scaled dense features + TF-IDF n-grams)
+        - dense_raw: Unscaled dense matrix (stylometry + function words)
+        """
+        self.stylometric_extractor.fit(texts)
+        self.function_word_extractor.fit(texts)
+
+        sty_feat, func_feat = self._extract_dense_raw(texts)
+        dense_raw = np.hstack([sty_feat, func_feat])
+
+        if self.dense_scaler is not None:
+            dense_scaled = self.dense_scaler.fit_transform(dense_raw)
+        else:
+            dense_scaled = dense_raw
+
+        dense_sparse = sp.csr_matrix(dense_scaled)
+        char_sparse = self.char_vectorizer.fit_transform(texts)
+
+        matrices = [dense_sparse, char_sparse]
+        if self.word_vectorizer is not None:
+            word_sparse = self.word_vectorizer.fit_transform(texts)
+            matrices.append(word_sparse)
+
+        # Build feature names
+        names = []
+        names.extend(self.stylometric_extractor.get_feature_names_out())
+        names.extend(self.function_word_extractor.get_feature_names_out())
+        names.extend([f"char_ngram__{t}" for t in self.char_vectorizer.get_feature_names_out()])
+        if self.word_vectorizer is not None:
+            names.extend([f"word_ngram__{t}" for t in self.word_vectorizer.get_feature_names_out()])
+
+        self.feature_names_ = names
+        self.is_fitted = True
+
+        return sp.hstack(matrices, format="csr"), dense_raw
+
+    def transform_with_raw_dense(self, texts: Sequence[str]) -> Tuple[sp.csr_matrix, np.ndarray]:
+        """
+        Transforms texts using the already-fitted pipeline and returns:
+        - X_sparse: Combined CSR matrix
+        - dense_raw: Unscaled dense matrix (stylometry + function words)
+        """
+        if not self.is_fitted:
+            raise RuntimeError("Pipeline must be fitted before calling transform_with_raw_dense().")
+
+        sty_feat, func_feat = self._extract_dense_raw(texts)
+        dense_raw = np.hstack([sty_feat, func_feat])
+
+        if self.dense_scaler is not None:
+            dense_scaled = self.dense_scaler.transform(dense_raw)
+        else:
+            dense_scaled = dense_raw
+
+        dense_sparse = sp.csr_matrix(dense_scaled)
+        char_sparse = self.char_vectorizer.transform(texts)
+
+        matrices = [dense_sparse, char_sparse]
+        if self.word_vectorizer is not None:
+            word_sparse = self.word_vectorizer.transform(texts)
+            matrices.append(word_sparse)
+
+        return sp.hstack(matrices, format="csr"), dense_raw
+
+    def get_family_slices(self) -> Dict[str, Tuple[int, int]]:
+        """Returns column index ranges (start, end) for each feature family."""
+        if not self.is_fitted:
+            raise RuntimeError("Pipeline must be fitted before querying family slices.")
+        n_sty = len(self.stylometric_extractor.get_feature_names_out())
+        n_func = len(self.function_word_extractor.get_feature_names_out())
+        n_char = len(self.char_vectorizer.get_feature_names_out())
+        n_word = len(self.word_vectorizer.get_feature_names_out()) if self.word_vectorizer else 0
+
+        s_sty = (0, n_sty)
+        s_func = (n_sty, n_sty + n_func)
+        s_char = (n_sty + n_func, n_sty + n_func + n_char)
+        s_word = (n_sty + n_func + n_char, n_sty + n_func + n_char + n_word)
+
+        return {
+            "stylometry": s_sty,
+            "function_words": s_func,
+            "char_ngrams": s_char,
+            "word_ngrams": s_word,
+            "dense_all": (0, n_sty + n_func),
+            "ngrams_all": (n_sty + n_func, n_sty + n_func + n_char + n_word),
+            "all": (0, n_sty + n_func + n_char + n_word),
+        }
 
     def get_feature_names_out(self) -> List[str]:
         """Returns the list of all feature names in exact column order."""
@@ -410,7 +510,7 @@ class BaselineFeaturePipeline:
 
 
 # -------------------------------------------------------------------------
-# 5. Helper Factory Function
+# 5. Helper Factory & Full Corpus Caching Functions
 # -------------------------------------------------------------------------
 def create_baseline_pipeline(
     char_max_features: int = 3000,
@@ -426,3 +526,226 @@ def create_baseline_pipeline(
         word_max_features=word_max_features,
         scale_dense_features=True,
     )
+
+
+def extract_and_cache_full_corpus(
+    train_path,
+    val_path,
+    output_dir,
+    char_max_features: int = 3000,
+    word_max_features: int = 1500,
+    max_records: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Executes full-scale feature extraction on Train and Validation sets (strictly fitting
+    only on Train to prevent data leakage) and serializes compressed matrices and metadata
+    to `output_dir` (e.g., data/processed/).
+    """
+    import json
+    from pathlib import Path
+    import time
+    import pandas as pd
+    from src.data_utils import iter_jsonl
+
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    # 1. Load Train records
+    t0_load = time.time()
+    train_texts, train_labels, train_models, train_genres, train_ids = [], [], [], [], []
+    for i, rec in enumerate(iter_jsonl(Path(train_path))):
+        if max_records and i >= max_records:
+            break
+        train_ids.append(rec.get("id", f"train_{i}"))
+        train_texts.append(rec.get("text", ""))
+        train_labels.append(int(rec.get("label", 0)))
+        train_models.append(rec.get("model", "unknown"))
+        train_genres.append(rec.get("genre", "unknown"))
+
+    # 2. Load Validation records
+    val_texts, val_labels, val_models, val_genres, val_ids = [], [], [], [], []
+    if val_path and Path(val_path).exists():
+        for i, rec in enumerate(iter_jsonl(Path(val_path))):
+            if max_records and i >= max_records:
+                break
+            val_ids.append(rec.get("id", f"val_{i}"))
+            val_texts.append(rec.get("text", ""))
+            val_labels.append(int(rec.get("label", 0)))
+            val_models.append(rec.get("model", "unknown"))
+            val_genres.append(rec.get("genre", "unknown"))
+
+    load_time = time.time() - t0_load
+
+    # 3. Fit & Transform Train (Strict no-leakage)
+    pipeline = create_baseline_pipeline(
+        char_max_features=char_max_features,
+        word_max_features=word_max_features,
+        include_word_ngrams=True,
+    )
+
+    t0_train = time.time()
+    X_train, X_dense_raw_train = pipeline.fit_transform_with_raw_dense(train_texts)
+    train_extract_time = time.time() - t0_train
+
+    # 4. Transform Validation
+    t0_val = time.time()
+    if val_texts:
+        X_val, X_dense_raw_val = pipeline.transform_with_raw_dense(val_texts)
+    else:
+        X_val = sp.csr_matrix((0, X_train.shape[1]), dtype=np.float64)
+        X_dense_raw_val = np.zeros((0, X_dense_raw_train.shape[1]), dtype=np.float64)
+    val_extract_time = time.time() - t0_val
+
+    # 5. Encode targets (Binary + Multiclass Model Attribution)
+    # Put 'human' at index 0, followed by sorted AI models
+    unique_ai_models = sorted({m for m in set(train_models) | set(val_models) if m != "human"})
+    model_classes = ["human"] + unique_ai_models
+    model_to_idx = {m: idx for idx, m in enumerate(model_classes)}
+
+    y_bin_train = np.array(train_labels, dtype=np.int64)
+    y_bin_val = np.array(val_labels, dtype=np.int64)
+    y_model_train = np.array([model_to_idx[m] for m in train_models], dtype=np.int64)
+    y_model_val = np.array([model_to_idx[m] for m in val_models], dtype=np.int64)
+
+    # 6. Integrity Audit
+    train_nan_count = int(np.isnan(X_train.data).sum())
+    train_inf_count = int(np.isinf(X_train.data).sum())
+    val_nan_count = int(np.isnan(X_val.data).sum()) if X_val.shape[0] > 0 else 0
+    val_inf_count = int(np.isinf(X_val.data).sum()) if X_val.shape[0] > 0 else 0
+
+    train_sparsity = 100.0 * (1.0 - (X_train.nnz / max(X_train.shape[0] * X_train.shape[1], 1)))
+    val_sparsity = 100.0 * (1.0 - (X_val.nnz / max(X_val.shape[0] * X_val.shape[1], 1))) if X_val.shape[0] > 0 else 0.0
+    ram_mb = (
+        X_train.data.nbytes + X_train.indices.nbytes + X_train.indptr.nbytes +
+        X_val.data.nbytes + X_val.indices.nbytes + X_val.indptr.nbytes +
+        X_dense_raw_train.nbytes + X_dense_raw_val.nbytes
+    ) / (1024.0 * 1024.0)
+
+    # 7. Save artifacts to disk
+    sp.save_npz(out_path / "X_train.npz", X_train)
+    sp.save_npz(out_path / "X_val.npz", X_val)
+    np.save(out_path / "X_dense_raw_train.npy", X_dense_raw_train)
+    np.save(out_path / "X_dense_raw_val.npy", X_dense_raw_val)
+    np.save(out_path / "y_bin_train.npy", y_bin_train)
+    np.save(out_path / "y_bin_val.npy", y_bin_val)
+    np.save(out_path / "y_model_train.npy", y_model_train)
+    np.save(out_path / "y_model_val.npy", y_model_val)
+
+    df_meta_train = pd.DataFrame({
+        "id": train_ids,
+        "label": train_labels,
+        "model": train_models,
+        "model_idx": y_model_train,
+        "genre": train_genres,
+    })
+    df_meta_train.to_csv(out_path / "meta_train.csv", index=False)
+
+    df_meta_val = pd.DataFrame({
+        "id": val_ids,
+        "label": val_labels,
+        "model": val_models,
+        "model_idx": y_model_val,
+        "genre": val_genres,
+    })
+    df_meta_val.to_csv(out_path / "meta_val.csv", index=False)
+
+    feature_names = pipeline.get_feature_names_out()
+    dense_feature_names = (
+        pipeline.stylometric_extractor.get_feature_names_out() +
+        pipeline.function_word_extractor.get_feature_names_out()
+    )
+    family_slices = {k: list(v) for k, v in pipeline.get_family_slices().items()}
+
+    metadata = {
+        "n_train": int(X_train.shape[0]),
+        "n_val": int(X_val.shape[0]),
+        "n_features": int(X_train.shape[1]),
+        "n_dense_features": len(dense_feature_names),
+        "family_slices": family_slices,
+        "model_classes": model_classes,
+        "model_to_idx": model_to_idx,
+        "load_time_sec": round(load_time, 3),
+        "train_extract_time_sec": round(train_extract_time, 3),
+        "val_extract_time_sec": round(val_extract_time, 3),
+        "total_extract_time_sec": round(train_extract_time + val_extract_time, 3),
+        "train_throughput_docs_per_sec": round(X_train.shape[0] / max(train_extract_time, 1e-6), 1),
+        "val_throughput_docs_per_sec": round(X_val.shape[0] / max(val_extract_time, 1e-6), 1) if X_val.shape[0] > 0 else 0.0,
+        "train_sparsity_pct": round(train_sparsity, 3),
+        "val_sparsity_pct": round(val_sparsity, 3),
+        "train_nnz": int(X_train.nnz),
+        "val_nnz": int(X_val.nnz),
+        "memory_footprint_mb": round(ram_mb, 2),
+        "integrity_checks": {
+            "train_nan_count": train_nan_count,
+            "train_inf_count": train_inf_count,
+            "val_nan_count": val_nan_count,
+            "val_inf_count": val_inf_count,
+            "status": "PASSED" if (train_nan_count + train_inf_count + val_nan_count + val_inf_count) == 0 else "FAILED",
+        },
+        "dense_scaler_mean": pipeline.dense_scaler.mean_.tolist() if pipeline.dense_scaler is not None else [],
+        "dense_scaler_scale": pipeline.dense_scaler.scale_.tolist() if pipeline.dense_scaler is not None else [],
+        "dense_feature_names": dense_feature_names,
+        "feature_names": feature_names,
+    }
+
+    with open(out_path / "feature_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    return {
+        "X_train": X_train,
+        "X_val": X_val,
+        "X_dense_raw_train": X_dense_raw_train,
+        "X_dense_raw_val": X_dense_raw_val,
+        "y_bin_train": y_bin_train,
+        "y_bin_val": y_bin_val,
+        "y_model_train": y_model_train,
+        "y_model_val": y_model_val,
+        "meta_train": df_meta_train,
+        "meta_val": df_meta_val,
+        "metadata": metadata,
+        "pipeline": pipeline,
+    }
+
+
+def load_cached_corpus(processed_dir) -> Dict[str, Any]:
+    """Loads previously extracted and cached feature matrices and metadata from `processed_dir`."""
+    import json
+    from pathlib import Path
+    import pandas as pd
+
+    p_dir = Path(processed_dir)
+    if not (p_dir / "X_train.npz").exists():
+        raise FileNotFoundError(f"Cached features not found in {p_dir}. Run extraction first.")
+
+    with open(p_dir / "feature_metadata.json", "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    return {
+        "X_train": sp.load_npz(p_dir / "X_train.npz"),
+        "X_val": sp.load_npz(p_dir / "X_val.npz"),
+        "X_dense_raw_train": np.load(p_dir / "X_dense_raw_train.npy"),
+        "X_dense_raw_val": np.load(p_dir / "X_dense_raw_val.npy"),
+        "y_bin_train": np.load(p_dir / "y_bin_train.npy"),
+        "y_bin_val": np.load(p_dir / "y_bin_val.npy"),
+        "y_model_train": np.load(p_dir / "y_model_train.npy"),
+        "y_model_val": np.load(p_dir / "y_model_val.npy"),
+        "meta_train": pd.read_csv(p_dir / "meta_train.csv"),
+        "meta_val": pd.read_csv(p_dir / "meta_val.csv"),
+        "metadata": metadata,
+    }
+
+
+def slice_feature_family(
+    X: sp.csr_matrix, metadata: Dict[str, Any], family: str
+) -> Tuple[sp.csr_matrix, List[str]]:
+    """
+    Slices a combined CSR matrix to extract a specific feature family:
+    'stylometry', 'function_words', 'char_ngrams', 'word_ngrams', 'dense_all', 'ngrams_all', or 'all'.
+    """
+    slices = metadata["family_slices"]
+    if family not in slices:
+        raise ValueError(f"Unknown family '{family}'. Valid options: {list(slices.keys())}")
+    start, end = slices[family]
+    feature_names = metadata["feature_names"][start:end]
+    return X[:, start:end], feature_names
+

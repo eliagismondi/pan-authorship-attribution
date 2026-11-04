@@ -1,0 +1,8 @@
+,Human,OpenAI (GPT/o3),Google (Gemini/PaLM),Meta (LLaMA),Mistral AI,DeepSeek / Qwen,TII Falcon
+Human,1251,4,7,6,7,2,0
+OpenAI (GPT/o3),2,855,25,5,15,11,9
+Google (Gemini/PaLM),10,32,392,16,17,10,5
+Meta (LLaMA),4,28,18,270,22,6,1
+Mistral AI,3,8,26,29,198,7,6
+DeepSeek / Qwen,1,18,5,1,4,137,3
+TII Falcon,0,13,5,0,5,1,89

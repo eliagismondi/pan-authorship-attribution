@@ -59,15 +59,38 @@ flowchart TD
 
 ---
 
-## 5. Repository Structure
+## 5. Dual-Task Baseline Benchmark Results (Validation Set $N = 3,589$)
+
+### Task 1: Binary Generative AI Detection (`0 = Human` vs `1 = AI`)
+| Baseline Model | 5-Fold CV Macro F1 | Val Macro F1 | Val Accuracy | Val ROC-AUC | False Positives / Negatives |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Dummy (Majority Class)** | `38.12 ± 0.00%` | `39.18%` | `64.42%` | `50.00%` | 1,277 FP / 0 FN |
+| **Complement Naive Bayes** | `91.55 ± 0.12%` | `90.15%` | `91.03%` | `96.50%` | 178 FP / 144 FN |
+| **Logistic Regression (L1 Lasso)** | `98.20 ± 0.27%` | `97.84%` | `98.02%` | `99.68%` | 43 FP / 28 FN |
+| **Logistic Regression (L2 Ridge)** | `98.45 ± 0.20%` | `97.99%` | `98.16%` | `99.71%` | 40 FP / 26 FN |
+| **Linear SVM (Stamatatos Standard)** | **`98.88 ± 0.15%`** | **`98.60%`** | **`98.72%`** | **`99.84%`** | **26 FP / 20 FN** |
+
+### Task 2: Author & Specific AI Model Attribution ($k = 23$ Classes: Human + 22 LLMs)
+| Attribution Pipeline | 23-Class Macro F1 | 23-Class Top-1 Acc | 23-Class Top-3 Acc | 22-AI Exact Acc | 7-Family Attribution Acc |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Dummy (Majority Class - 23c)** | `2.28%` | `35.58%` | `39.26%` | `0.00%` | `35.58%` |
+| **Complement Naive Bayes (23c)** | `22.03%` | `49.87%` | `69.46%` | `25.17%` | `61.58%` |
+| **Logistic Regression (Multinomial L2 - 23c)** | `70.50%` | `81.64%` | `94.59%` | `72.75%` | `87.66%` |
+| **Linear SVM (One-vs-Rest - 23c)** | **`73.27%`** | **`84.12%`** | **`94.93%`** | `75.69%` | **`89.05%`** |
+| **Two-Stage Hierarchical (Stage1 Bin + Stage2 Linear SVM)** | `73.13%` | `83.87%` | `93.98%` | **`76.08%`** | `88.94%` |
+
+---
+
+## 6. Repository Structure
 
 ```
 pan-authorship-attribution/
 ├── data/
-│   └── raw/
-│       └── pan25-generative-ai-detection-task1-train/
-│           ├── train.jsonl
-│           └── val.jsonl
+│   ├── raw/
+│   │   └── pan25-generative-ai-detection-task1-train/
+│   │       ├── train.jsonl
+│   │       └── val.jsonl
+│   └── processed/                      # Cached CSR feature matrices (.npz) & diagnostics (.csv)
 ├── notebooks/
 │   └── 01_exploratory_analysis.ipynb   # Interactive Jupyter EDA & Presentation
 ├── reports/
@@ -76,6 +99,8 @@ pan-authorship-attribution/
 │   ├── 03_advanced_derivation_report.md
 │   ├── 04_feature_distributions_point10_report.md
 │   ├── 05_correlation_matrix_points_9_13_report.md
+│   ├── 06_feature_influence_and_importance_report.md
+│   ├── 07_baseline_models_report.md
 │   └── figures/                        # Exported publication-ready figures
 │       ├── class_balance_binary.png
 │       ├── class_balance_authors.png
@@ -86,12 +111,20 @@ pan-authorship-attribution/
 │       ├── correlation_heatmap.png
 │       ├── feature_predictive_power_ranking.png
 │       ├── feature_distributions_entire_dataset.png
-│       └── feature_distributions_by_author.png
+│       ├── feature_distributions_by_author.png
+│       ├── feature_influence_comprehensive.png
+│       ├── llm_family_stylometric_fingerprints.png
+│       ├── feature_family_ablation.png
+│       ├── baseline_models_benchmark.png
+│       ├── baseline_diagnostics_and_confusion.png
+│       └── per_llm_detection_and_attribution.png
 ├── src/
 │   ├── __init__.py
 │   ├── data_utils.py                   # Data ingestion, inspection & quality audit
-│   ├── feature_extraction.py           # Multi-level stylometric & baseline vectorizer
-│   ├── visualization.py                # Publication-quality charts & EDA visualizers
+│   ├── feature_extraction.py           # Multi-level stylometric vectorizer & corpus caching
+│   ├── feature_importance.py           # Univariate, multivariate & ablation feature influence
+│   ├── baseline_models.py              # Dual-task baseline classifiers & cross-genre diagnostics
+│   ├── visualization.py                # Publication-quality charts & visualizers
 │   └── main.py                         # Complete pipeline orchestrator
 ├── requirements.txt
 └── README.md
@@ -99,7 +132,7 @@ pan-authorship-attribution/
 
 ---
 
-## 6. How to Run the Analysis
+## 7. How to Run the Analysis
 
 To execute the pipelines and generate all deliverables:
 
@@ -107,21 +140,24 @@ To execute the pipelines and generate all deliverables:
 # Activate your environment
 source .venv/bin/activate
 
-# Run Points 9 & 13: Correlation Matrix, Collinearity & Predictive Power
-python src/main.py --stage 9
+# Run Steps 1 & 2: Full Corpus Feature Extraction & Caching (Train + Val)
+python3 src/main.py --stage 4
 
-# Run Point 10: Feature Distributions Across Dataset & Authors
-python src/main.py --stage 10
+# Run Step 3: Measure Feature Influence for Output (Univariate, Multivariate, Ablation)
+python3 src/main.py --stage 5
 
-# Run Stage 2: Baseline Vector Space Feature Extraction
-python src/main.py --stage 2
+# Run Step 4: Dual-Task Baseline Models Benchmark (Binary + 23-Class Attribution)
+python3 src/main.py --stage 6
+
+# Run all 4 new steps together (Stages 4 + 5 + 6)
+python3 src/main.py --stage all_baseline
 
 # Run the complete end-to-end pipeline (All Stages & Points)
-python src/main.py --stage all
+python3 src/main.py --stage all
 ```
 
 To run individual data utility checks:
 
 ```bash
-python src/data_utils.py
+python3 src/data_utils.py
 ```

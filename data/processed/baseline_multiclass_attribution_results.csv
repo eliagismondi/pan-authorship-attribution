@@ -1,0 +1,7 @@
+model_name,architecture,val_23class_macro_f1,val_23class_weighted_f1,val_23class_top1_acc,val_23class_top3_acc,val_22ai_exact_acc,val_22ai_macro_f1,val_7family_acc,val_7family_macro_f1,implied_binary_macro_f1,fit_sec
+Dummy (Majority Class - 23c),Direct 23-Class,0.0228,0.1868,0.3558,0.3926,0.0,0.0,0.3558,0.075,0.2624,0.0
+Complement Naive Bayes (23c),Direct 23-Class,0.2203,0.4344,0.4987,0.6946,0.2517,0.1973,0.6158,0.3992,0.8521,0.32
+Logistic Regression (Multinomial L2 - 23c),Direct 23-Class,0.705,0.8151,0.8164,0.9459,0.7275,0.6974,0.8766,0.8098,0.9794,102.38
+Linear SVM (One-vs-Rest - 23c),Direct 23-Class,0.7327,0.8384,0.8412,0.9493,0.7569,0.7225,0.8905,0.8296,0.9888,164.8
+Two-Stage Hierarchical (Stage1 Bin + Stage2 Linear SVM),Two-Stage Hierarchical,0.7313,0.8368,0.8387,0.9398,0.7608,0.7245,0.8894,0.8314,0.986,171.38
+Two-Stage Hierarchical (Stage1 Bin + Stage2 Logistic Reg),Two-Stage Hierarchical,0.7051,0.8195,0.82,0.9415,0.7318,0.6967,0.883,0.8169,0.986,171.38

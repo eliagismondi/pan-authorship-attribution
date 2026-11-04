@@ -595,6 +595,482 @@ def plot_feature_distributions_entire_dataset(
     return output_path
 
 
+# =========================================================================
+# Stage 3 & Stage 4 Visualizations: Feature Influence & Baseline Models
+# =========================================================================
+
+def plot_comprehensive_feature_influence(
+    df_dense_uni,
+    df_global_weights,
+    output_path: Path,
+    top_n: int = 20,
+) -> Path:
+    """
+    Dual-panel figure:
+    - Left: Top 20 Dense Features (Stylometry + Function Words) by Pearson correlation r with target y.
+    - Right: Top 20 Global Features across all 4,600 dimensions by Logistic Regression Beta weight.
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 8.5), dpi=160)
+
+    # Panel 1: Top Dense Univariate Pearson r
+    top_uni = df_dense_uni.head(top_n).iloc[::-1]
+    labels_uni = [f"[{r['family'][:4]}] {r['short_name']}" for _, r in top_uni.iterrows()]
+    vals_uni = top_uni["pearson_r"].values
+    colors_uni = [PALETTE["ai"] if v > 0 else PALETTE["human"] for v in vals_uni]
+
+    bars1 = ax1.barh(labels_uni, vals_uni, color=colors_uni, alpha=0.88, edgecolor="#1E293B", height=0.68)
+    ax1.axvline(0, color="#334155", linewidth=1.2)
+    for bar, v in zip(bars1, vals_uni):
+        offset = 0.012 if v >= 0 else -0.012
+        ha = "left" if v >= 0 else "right"
+        ax1.text(
+            v + offset, bar.get_y() + bar.get_height() / 2.0,
+            f"{v:+.3f}", va="center", ha=ha, fontsize=8.5, fontweight="semibold", color=PALETTE["text"]
+        )
+    ax1.set_xlim(min(vals_uni) - 0.12, max(vals_uni) + 0.12)
+    _setup_figure_style(
+        ax1,
+        title=f"Top {top_n} Dense Features: Pearson r with Output y\n(Green < 0 = Human Marker | Blue > 0 = AI Marker)",
+        xlabel="Pearson Correlation Coefficient (r)",
+    )
+
+    # Panel 2: Top Global Logistic Regression Beta Weights
+    top_glob = df_global_weights.head(top_n).iloc[::-1]
+    labels_glob = [f"[{r['family'][:4]}] '{r['short_name']}'" for _, r in top_glob.iterrows()]
+    vals_glob = top_glob["beta_weight"].values
+    colors_glob = [PALETTE["ai"] if v > 0 else PALETTE["human"] for v in vals_glob]
+
+    bars2 = ax2.barh(labels_glob, vals_glob, color=colors_glob, alpha=0.88, edgecolor="#1E293B", height=0.68)
+    ax2.axvline(0, color="#334155", linewidth=1.2)
+    for bar, v in zip(bars2, vals_glob):
+        offset = 0.05 if v >= 0 else -0.05
+        ha = "left" if v >= 0 else "right"
+        ax2.text(
+            v + offset, bar.get_y() + bar.get_height() / 2.0,
+            f"{v:+.2f}", va="center", ha=ha, fontsize=8.5, fontweight="semibold", color=PALETTE["text"]
+        )
+    ax2.set_xlim(min(vals_glob) - 0.45, max(vals_glob) + 0.45)
+    _setup_figure_style(
+        ax2,
+        title=f"Top {top_n} Global Features (4,600 Dims): Standardized Beta Weights\n(Multivariate Influence in L2 Logistic Regression)",
+        xlabel="Standardized Coefficient (Beta_j)",
+    )
+
+    fig.suptitle(
+        "Stage 3: Univariate & Multivariate Feature Influence on Target Output y (N = 23,707 Train)",
+        fontsize=14, fontweight="bold", y=0.99, color=PALETTE["text"]
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_llm_family_fingerprints(
+    df_family_profiles,
+    df_multiclass_anova,
+    output_path: Path,
+    top_n_features: int = 15,
+) -> Path:
+    """
+    Generates a heatmap of standardized stylometric feature signatures across the 7
+    architectural families (Human, OpenAI, Google Gemini, Meta LLaMA, Mistral, DeepSeek/Qwen, Falcon)
+    ordered by Multiclass ANOVA F-statistic.
+    """
+    import seaborn as sns
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sty_anova = df_multiclass_anova[df_multiclass_anova["family"] == "Stylometry"].head(top_n_features)
+    top_cols = [c for c in sty_anova["short_name"].tolist() if c in df_family_profiles.columns]
+
+    mat = df_family_profiles[top_cols].T  # Features as rows, LLM Families as columns
+
+    fig, ax = plt.subplots(figsize=(12.5, 8.0), dpi=160)
+    sns.heatmap(
+        mat,
+        annot=True,
+        fmt="+.2f",
+        cmap="RdBu_r",
+        center=0.0,
+        vmin=-1.2,
+        vmax=1.2,
+        linewidths=0.8,
+        linecolor="white",
+        cbar_kws={"label": "Mean Standardized Z-Score (Relative to Corpus Mean)"},
+        ax=ax,
+    )
+    ax.set_title(
+        "LLM Architectural Family Fingerprints: Top 15 Discriminative Stylometric Features\n"
+        "(Ranked by Multiclass One-Way ANOVA F-Statistic Across 22 AI Models)",
+        fontsize=13, fontweight="bold", pad=14, color=PALETTE["text"]
+    )
+    ax.set_xlabel("Author / Generative AI Architecture Family", fontsize=11, fontweight="semibold", labelpad=8)
+    ax.set_ylabel("Stylometric Feature (Ordered by Multiclass ANOVA F)", fontsize=11, fontweight="semibold", labelpad=8)
+    ax.tick_params(axis="x", rotation=22, labelsize=10)
+    ax.tick_params(axis="y", rotation=0, labelsize=10)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_feature_family_ablation(
+    df_ablation,
+    output_path: Path,
+) -> Path:
+    """
+    Plots the Feature Family Ablation Study comparing Binary Macro F1 (Human vs AI)
+    and Multiclass 23-Author Attribution Macro F1 across individual families, combinations, and LOFO.
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16.5, 6.8), dpi=160)
+
+    # Panel 1: Single & Combined Families
+    sub_main = df_ablation[df_ablation["group_type"] != "Leave-One-Out"].copy()
+    x = np.arange(len(sub_main))
+    width = 0.36
+
+    b1 = ax1.bar(
+        x - width / 2, sub_main["binary_macro_f1"] * 100, width,
+        label="Task 1: Binary Detection Macro F1 (%)", color=PALETTE["ai"], alpha=0.9, edgecolor="#1E293B"
+    )
+    b2 = ax1.bar(
+        x + width / 2, sub_main["multiclass23_macro_f1"] * 100, width,
+        label="Task 2: 23-Class Attribution Macro F1 (%)", color="#E45756", alpha=0.88, edgecolor="#1E293B"
+    )
+
+    for bar in b1:
+        h = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width() / 2, h + 0.8, f"{h:.1f}%", ha="center", va="bottom", fontsize=8.2, fontweight="bold")
+    for bar in b2:
+        h = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width() / 2, h + 0.8, f"{h:.1f}%", ha="center", va="bottom", fontsize=8.2, fontweight="bold")
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(sub_main["config_name"], rotation=25, ha="right", fontsize=9.5)
+    ax1.set_ylim(0, 118)
+    _setup_figure_style(
+        ax1,
+        title="Feature Family Ablation: Individual vs Combined Spaces",
+        ylabel="Validation Macro F1-Score (%)",
+    )
+    ax1.legend(loc="upper left", framealpha=0.92)
+
+    # Panel 2: Leave-One-Family-Out (LOFO) Impact (Delta F1 in percentage points)
+    sub_lofo = df_ablation[df_ablation["group_type"] == "Leave-One-Out"].copy()
+    x2 = np.arange(len(sub_lofo))
+
+    d_bin = sub_lofo["delta_binary_f1"] * 100.0
+    d_mul = sub_lofo["delta_multi_f1"] * 100.0
+
+    b3 = ax2.bar(
+        x2 - width / 2, d_bin, width,
+        label="Delta Binary Macro F1 (% pts)", color=PALETTE["neutral"], alpha=0.9, edgecolor="#1E293B"
+    )
+    b4 = ax2.bar(
+        x2 + width / 2, d_mul, width,
+        label="Delta 23-Class Attribution F1 (% pts)", color="#F58518", alpha=0.9, edgecolor="#1E293B"
+    )
+    ax2.axhline(0, color="#0F172A", linewidth=1.2)
+
+    for bar in list(b3) + list(b4):
+        h = bar.get_height()
+        va = "top" if h < 0 else "bottom"
+        offset = -0.15 if h < 0 else 0.15
+        ax2.text(bar.get_x() + bar.get_width() / 2, h + offset, f"{h:+.2f}%", ha="center", va=va, fontsize=8.5, fontweight="bold")
+
+    ax2.set_xticks(x2)
+    ax2.set_xticklabels(sub_lofo["config_name"], rotation=20, ha="right", fontsize=9.5)
+    min_y = min(min(d_bin), min(d_mul), -1.0) * 1.35
+    max_y = max(max(d_bin), max(d_mul), 0.5) + 1.0
+    ax2.set_ylim(min_y, max_y)
+    _setup_figure_style(
+        ax2,
+        title="Leave-One-Family-Out (LOFO): Performance Drop vs Full System",
+        ylabel="Change in Validation Macro F1 (% Points)",
+    )
+    ax2.legend(loc="lower left", framealpha=0.92)
+
+    fig.suptitle(
+        "Stage 3: Multi-Level Feature Family Ablation Study (Validation Set N = 3,589)",
+        fontsize=14, fontweight="bold", y=0.99, color=PALETTE["text"]
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_baseline_models_benchmark(
+    df_binary,
+    df_multiclass,
+    roc_curves: Dict[str, Any],
+    output_path: Path,
+) -> Path:
+    """
+    3-Panel Figure summarizing Stage 4 Baseline Model Performance:
+    - Panel 1: Task 1 Binary Detection (5-Fold CV Macro F1 vs Validation Macro F1 & ROC-AUC)
+    - Panel 2: Task 1 ROC Curves on Validation Set
+    - Panel 3: Task 2 Model Attribution (23-Class Macro F1, 22-AI Exact Acc, 7-Family Acc)
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6.5), dpi=160)
+
+    # Panel 1: Binary Baselines Bar Chart
+    x1 = np.arange(len(df_binary))
+    w = 0.27
+    ax1.bar(x1 - w, df_binary["cv5_macro_f1_mean"] * 100, w, label="5-Fold CV Macro F1", color="#64748B", alpha=0.88)
+    b_val = ax1.bar(x1, df_binary["val_macro_f1"] * 100, w, label="Val Macro F1 (Official)", color=PALETTE["ai"], alpha=0.92)
+    ax1.bar(x1 + w, df_binary["val_roc_auc"] * 100, w, label="Val ROC-AUC", color=PALETTE["human"], alpha=0.85)
+
+    for bar in b_val:
+        h = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width() / 2, h + 1.0, f"{h:.1f}%", ha="center", va="bottom", fontsize=8.2, fontweight="bold")
+
+    ax1.set_xticks(x1)
+    ax1.set_xticklabels(df_binary["model_name"], rotation=25, ha="right", fontsize=9.0)
+    ax1.set_ylim(30, 108)
+    _setup_figure_style(
+        ax1,
+        title="Task 1: Binary Detection Baselines\n(Human vs AI - N_val = 3,589)",
+        ylabel="Score (%)",
+    )
+    ax1.legend(loc="lower right", fontsize=8.5, framealpha=0.92)
+
+    # Panel 2: ROC Curves
+    line_styles = ["--", "-.", ":", "-", "-"]
+    colors = ["#94A3B8", "#F58518", "#2CA02C", "#1F77B4", "#E45756"]
+    for idx, (mname, (fpr, tpr, auc_val)) in enumerate(roc_curves.items()):
+        ax2.plot(
+            fpr, tpr,
+            linestyle=line_styles[idx % len(line_styles)],
+            color=colors[idx % len(colors)],
+            linewidth=2.2,
+            label=f"{mname} (AUC = {auc_val:.4f})",
+        )
+    ax2.plot([0, 1], [0, 1], color="#CBD5E1", linestyle="--", linewidth=1.0)
+    _setup_figure_style(
+        ax2,
+        title="Task 1: Validation ROC Curves\n(Binary GenAI Detection)",
+        xlabel="False Positive Rate (1 - Specificity)",
+        ylabel="True Positive Rate (Sensitivity)",
+    )
+    ax2.legend(loc="lower right", fontsize=8.2, framealpha=0.92)
+
+    # Panel 3: Task 2 Model Attribution (23 Classes & Two-Stage Hierarchical)
+    x3 = np.arange(len(df_multiclass))
+    b_m1 = ax3.bar(
+        x3 - w, df_multiclass["val_23class_macro_f1"] * 100, w,
+        label="23-Class Macro F1", color="#E45756", alpha=0.9
+    )
+    b_m2 = ax3.bar(
+        x3, df_multiclass["val_23class_top1_acc"] * 100, w,
+        label="23-Class Top-1 Acc", color=PALETTE["ai"], alpha=0.9
+    )
+    b_m3 = ax3.bar(
+        x3 + w, df_multiclass["val_7family_acc"] * 100, w,
+        label="7-Family Attribution Acc", color=PALETTE["human"], alpha=0.88
+    )
+
+    for bar in b_m2:
+        h = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width() / 2, h + 1.0, f"{h:.1f}%", ha="center", va="bottom", fontsize=8.0, fontweight="bold")
+
+    short_mnames = [
+        m.replace("Two-Stage Hierarchical (Stage1 Bin + ", "2-Stage (")
+         .replace("Logistic Regression (Multinomial L2 - 23c)", "Logistic Reg (23c)")
+         .replace("Linear SVM (One-vs-Rest - 23c)", "Linear SVM (23c)")
+         .replace("Complement Naive Bayes (23c)", "Complement NB (23c)")
+         .replace("Dummy (Majority Class - 23c)", "Dummy (23c)")
+        for m in df_multiclass["model_name"]
+    ]
+    ax3.set_xticks(x3)
+    ax3.set_xticklabels(short_mnames, rotation=25, ha="right", fontsize=8.8)
+    ax3.set_ylim(0, 105)
+    _setup_figure_style(
+        ax3,
+        title="Task 2: Author & AI Model Attribution\n(Direct 23-Class vs Two-Stage Hierarchical)",
+        ylabel="Validation Score (%)",
+    )
+    ax3.legend(loc="upper left", fontsize=8.5, framealpha=0.92)
+
+    fig.suptitle(
+        "Stage 4: Baseline Models Evaluation — Dual-Task Benchmark (Binary Detection & LLM Attribution)",
+        fontsize=14, fontweight="bold", y=0.995, color=PALETTE["text"]
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_baseline_diagnostics_and_confusion(
+    cm_binary,
+    df_cm_family,
+    df_genre,
+    output_path: Path,
+) -> Path:
+    """
+    3-Panel Diagnostic Figure:
+    - Panel 1: 2x2 Binary Confusion Matrix (Linear SVM)
+    - Panel 2: 7x7 Row-Normalized Architectural Family Confusion Matrix (%)
+    - Panel 3: Cross-Genre Performance Breakdown (Fiction, Essays, News)
+    """
+    import numpy as np
+    import seaborn as sns
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20.5, 6.4), dpi=160)
+
+    # Panel 1: 2x2 Binary Confusion Matrix
+    cm_norm = cm_binary.astype(float) / cm_binary.sum(axis=1, keepdims=True) * 100.0
+    annot_bin = np.empty_like(cm_binary, dtype=object)
+    for i in range(2):
+        for j in range(2):
+            annot_bin[i, j] = f"{cm_binary[i, j]:,}\n({cm_norm[i, j]:.1f}%)"
+
+    sns.heatmap(
+        cm_norm,
+        annot=annot_bin,
+        fmt="",
+        cmap="Blues",
+        cbar=False,
+        xticklabels=["Pred: Human (0)", "Pred: AI (1)"],
+        yticklabels=["True: Human (0)", "True: AI (1)"],
+        annot_kws={"size": 11, "weight": "bold"},
+        linewidths=1.5,
+        linecolor="white",
+        ax=ax1,
+    )
+    ax1.set_title("Task 1: Binary Confusion Matrix\n(Linear SVM Baseline - Val N = 3,589)", fontsize=12.5, fontweight="bold", pad=12)
+
+    # Panel 2: 7x7 Family Confusion Matrix (Row-normalized %)
+    fam_vals = df_cm_family.values.astype(float)
+    fam_row_sums = np.maximum(fam_vals.sum(axis=1, keepdims=True), 1.0)
+    fam_pct = fam_vals / fam_row_sums * 100.0
+
+    short_fams = ["Human", "OpenAI", "Google", "LLaMA", "Mistral", "DeepSeek", "Falcon"]
+    sns.heatmap(
+        fam_pct,
+        annot=True,
+        fmt=".1f",
+        cmap="YlGnBu",
+        xticklabels=short_fams,
+        yticklabels=short_fams,
+        cbar_kws={"label": "Row Recall (%)"},
+        annot_kws={"size": 8.5, "weight": "semibold"},
+        linewidths=0.8,
+        linecolor="white",
+        ax=ax2,
+    )
+    ax2.set_title("Task 2: Architectural Family Attribution (%)\n(Two-Stage Hierarchical Baseline)", fontsize=12.5, fontweight="bold", pad=12)
+    ax2.set_xlabel("Predicted Family", fontsize=10.5, fontweight="semibold")
+    ax2.set_ylabel("True Family", fontsize=10.5, fontweight="semibold")
+    ax2.tick_params(axis="x", rotation=30)
+    ax2.tick_params(axis="y", rotation=0)
+
+    # Panel 3: Cross-Genre Performance for Linear SVM & Logistic Regression
+    sub_g = df_genre[df_genre["baseline_model"] == "Linear SVM (Stamatatos Standard)"].copy()
+    xg = np.arange(len(sub_g))
+    w = 0.28
+
+    b1 = ax3.bar(xg - w, sub_g["binary_macro_f1"] * 100, w, label="Binary Detection Macro F1", color=PALETTE["ai"], alpha=0.92)
+    b2 = ax3.bar(xg, sub_g["binary_accuracy"] * 100, w, label="Binary Accuracy", color=PALETTE["human"], alpha=0.88)
+    b3 = ax3.bar(xg + w, sub_g["multiclass23_acc_best"] * 100, w, label="23-Class Attribution Acc", color="#E45756", alpha=0.88)
+
+    for bar in list(b1) + list(b3):
+        h = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width() / 2, h + 0.8, f"{h:.1f}%", ha="center", va="bottom", fontsize=8.2, fontweight="bold")
+
+    genre_labels = [f"{r['genre'].capitalize()}\n(n={r['n_samples']})" for _, r in sub_g.iterrows()]
+    ax3.set_xticks(xg)
+    ax3.set_xticklabels(genre_labels, fontsize=10)
+    ax3.set_ylim(0, 108)
+    _setup_figure_style(
+        ax3,
+        title="Cross-Domain Generalization Across Genres\n(Fiction vs Essays vs News)",
+        ylabel="Validation Score (%)",
+    )
+    ax3.legend(loc="lower right", fontsize=8.5, framealpha=0.92)
+
+    fig.suptitle(
+        "Stage 4: Baseline Error Analysis — Confusion Matrices & Cross-Domain Generalization",
+        fontsize=14, fontweight="bold", y=0.995, color=PALETTE["text"]
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_per_llm_detection_and_attribution(
+    df_per_model,
+    output_path: Path,
+) -> Path:
+    """
+    Horizontal grouped bar chart across all 23 candidate models (Human + 22 AI models)
+    showing Binary Detection Accuracy, Exact Model Attribution Accuracy, and Family Attribution Accuracy.
+    """
+    import numpy as np
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    df_plot = df_per_model.sort_values(by="exact_model_attribution_acc", ascending=True).copy()
+
+    fig, ax = plt.subplots(figsize=(14.5, 10.5), dpi=160)
+    y = np.arange(len(df_plot))
+    h = 0.27
+
+    ax.barh(
+        y + h, df_plot["binary_detection_acc"] * 100, h,
+        label="Task 1: Binary Detection Recall (Human vs AI %)", color=PALETTE["ai"], alpha=0.9
+    )
+    ax.barh(
+        y, df_plot["family_attribution_acc"] * 100, h,
+        label="Task 2: Architectural Family Attribution Acc (%)", color=PALETTE["human"], alpha=0.88
+    )
+    b_exact = ax.barh(
+        y - h, df_plot["exact_model_attribution_acc"] * 100, h,
+        label="Task 2: Exact Model Attribution Acc (23 Classes %)", color="#E45756", alpha=0.9
+    )
+
+    for bar, val in zip(b_exact, df_plot["exact_model_attribution_acc"] * 100):
+        ax.text(
+            val + 0.8, bar.get_y() + bar.get_height() / 2,
+            f"{val:.1f}%", va="center", ha="left", fontsize=8.0, fontweight="bold", color=PALETTE["text"]
+        )
+
+    labels = [f"{r['model_name']} (n={r['n_val_samples']})" for _, r in df_plot.iterrows()]
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=9.2)
+    ax.set_xlim(0, 108)
+    _setup_figure_style(
+        ax,
+        title="Per-Author & Per-LLM Performance Breakdown on Validation Set (N = 3,589)\n",
+        xlabel="Validation Accuracy / Recall (%)",
+    )
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.005), ncol=3, fontsize=9.5, framealpha=0.94)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+
 def plot_feature_distributions_by_author(
     df,
     output_path: Path,
@@ -709,4 +1185,5 @@ def plot_feature_distributions_by_author(
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
     return output_path
+
 

@@ -1,0 +1,12 @@
+config_name,group_type,n_features,binary_macro_f1,binary_accuracy,binary_roc_auc,multiclass23_macro_f1,multiclass23_accuracy,ai22_attribution_acc,elapsed_sec,delta_binary_f1,delta_multi_f1
+1. Stylometry Only,Single Family,30,0.9361,0.942,0.9791,0.42,0.6138,0.4226,1.52,-0.0438,-0.3127
+2. Function Words Only,Single Family,70,0.9231,0.9301,0.9739,0.3483,0.5832,0.372,2.36,-0.0568,-0.3844
+3. Dense Combined (Sty + Func),Sub-Group,100,0.959,0.9627,0.9901,0.5697,0.72,0.5813,8.72,-0.0209,-0.163
+4. Word N-Grams Only,Single Family,1500,0.9772,0.9791,0.9966,0.6138,0.7634,0.638,7.32,-0.0027,-0.1189
+5. Char N-Grams Only,Single Family,3000,0.9753,0.9774,0.9961,0.6431,0.7888,0.6743,38.03,-0.0046,-0.0896
+6. N-Grams Combined (Char + Word),Sub-Group,4500,0.9842,0.9855,0.9977,0.6834,0.8119,0.7102,43.2,0.0043,-0.0493
+7. Full Pipeline (All Families),Full System,4600,0.9799,0.9816,0.9971,0.7327,0.8412,0.7569,161.61,0.0,0.0
+LOFO: w/o Stylometry,Leave-One-Out,4570,0.9784,0.9802,0.9969,0.6851,0.8142,0.7145,105.88,-0.0015,-0.0476
+LOFO: w/o Function Words,Leave-One-Out,4530,0.9826,0.9841,0.9976,0.7425,0.8434,0.7595,137.75,0.0027,0.0098
+LOFO: w/o Word N-Grams,Leave-One-Out,3100,0.9756,0.9777,0.9955,0.7169,0.827,0.7379,159.86,-0.0043,-0.0158
+LOFO: w/o Char N-Grams,Leave-One-Out,1600,0.9777,0.9797,0.9964,0.7021,0.8189,0.7245,31.71,-0.0022,-0.0306

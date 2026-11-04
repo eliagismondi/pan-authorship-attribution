@@ -39,3 +39,8 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
+
+# Large binary feature matrices (>100MB, regenerated via `python3 src/main.py --stage 4`)
+data/processed/*.npz
+data/processed/*.npy
+

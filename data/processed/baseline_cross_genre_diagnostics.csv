@@ -1,0 +1,16 @@
+baseline_model,genre,n_samples,n_human,n_ai,binary_macro_f1,binary_accuracy,false_positive_rate_human,false_negative_rate_ai,multiclass23_acc_best
+Dummy (Majority Class),essays,665,132,533,0.4449,0.8015,1.0,0.0,0.7759
+Dummy (Majority Class),fiction,1837,928,909,0.331,0.4948,1.0,0.0,0.963
+Dummy (Majority Class),news,1087,217,870,0.4446,0.8004,1.0,0.0,0.667
+Complement Naive Bayes,essays,665,132,533,0.7841,0.8812,0.4697,0.0319,0.7759
+Complement Naive Bayes,fiction,1837,928,909,0.9366,0.9369,0.0043,0.1232,0.963
+Complement Naive Bayes,news,1087,217,870,0.777,0.8832,0.5161,0.0172,0.667
+Logistic Regression (L1 Lasso),essays,665,132,533,0.9665,0.9789,0.0682,0.0094,0.7759
+Logistic Regression (L1 Lasso),fiction,1837,928,909,0.9907,0.9907,0.0043,0.0143,0.963
+Logistic Regression (L1 Lasso),news,1087,217,870,0.9403,0.9632,0.1382,0.0115,0.667
+Logistic Regression (L2 Ridge),essays,665,132,533,0.9758,0.985,0.0682,0.0019,0.7759
+Logistic Regression (L2 Ridge),fiction,1837,928,909,0.9918,0.9918,0.0022,0.0143,0.963
+Logistic Regression (L2 Ridge),news,1087,217,870,0.9392,0.9623,0.1336,0.0138,0.667
+Linear SVM (Stamatatos Standard),essays,665,132,533,0.9857,0.991,0.0303,0.0038,0.7759
+Linear SVM (Stamatatos Standard),fiction,1837,928,909,0.9929,0.9929,0.0043,0.0099,0.963
+Linear SVM (Stamatatos Standard),news,1087,217,870,0.9605,0.9752,0.0829,0.0103,0.667

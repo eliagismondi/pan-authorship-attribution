@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 import sys
 import time
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 
 # Add project root to path
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -493,12 +493,234 @@ def run_point_10_feature_distributions(n_samples: Optional[int] = None):
     return df
 
 
+def run_stage4_extract_and_cache(max_records: Optional[int] = None):
+    """
+    Steps 1 & 2 (Extract Features & Run Them on Full Corpus):
+    Extracts the 4,600-dimensional feature space across Train (23,707) and Validation (3,589),
+    audits integrity, and caches compressed matrices to `data/processed/`.
+    """
+    from src.feature_extraction import extract_and_cache_full_corpus
+
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   STAGE 4: FULL CORPUS FEATURE EXTRACTION & CACHING (STEPS 1 & 2)")
+    print("=" * 75)
+
+    train_path = find_default_train_path()
+    val_path = find_default_val_path()
+    processed_dir = ROOT_DIR / "data" / "processed"
+
+    if not train_path or not train_path.exists():
+        print("[ERROR] Training dataset not found in data/raw/*/")
+        return None
+
+    print(f"\n[1] RUNNING MULTI-LEVEL FEATURE EXTRACTION ON FULL CORPUS")
+    print(f"  * Train Source:      {train_path}")
+    print(f"  * Validation Source: {val_path}")
+    print(f"  * Output Cache Dir:  {processed_dir}")
+
+    cached = extract_and_cache_full_corpus(
+        train_path=train_path,
+        val_path=val_path,
+        output_dir=processed_dir,
+        char_max_features=3000,
+        word_max_features=1500,
+        max_records=max_records,
+    )
+    meta = cached["metadata"]
+
+    print(f"\n[2] EXTRACTION & INTEGRITY SUMMARY")
+    print(f"  * Train Matrix Shape:      {meta['n_train']:,} x {meta['n_features']:,} (Sparsity: {meta['train_sparsity_pct']:.2f}%)")
+    print(f"  * Validation Matrix Shape: {meta['n_val']:,} x {meta['n_features']:,} (Sparsity: {meta['val_sparsity_pct']:.2f}%)")
+    print(f"  * Candidate Classes (k):   {len(meta['model_classes'])} (1 Human + {len(meta['model_classes'])-1} AI Models)")
+    print(f"  * Train Throughput:        {meta['train_throughput_docs_per_sec']} docs/sec ({meta['train_extract_time_sec']:.2f}s)")
+    print(f"  * Validation Throughput:   {meta['val_throughput_docs_per_sec']} docs/sec ({meta['val_extract_time_sec']:.2f}s)")
+    print(f"  * Memory Footprint (RAM):  {meta['memory_footprint_mb']:.2f} MB")
+    print(f"  * Data Integrity Audit:    {meta['integrity_checks']['status']} (NaNs={meta['integrity_checks']['train_nan_count']}, Infs={meta['integrity_checks']['train_inf_count']})")
+    print("=" * 75)
+    return cached
+
+
+def run_stage5_feature_influence(cached_data: Optional[Dict[str, Any]] = None):
+    """
+    Step 3 (Measure Feature Influence for Output):
+    Computes univariate correlations, ANOVA F, Mutual Information, Logistic Regression
+    Beta weights, Permutation Importance, LLM family signatures, and Feature Family Ablation.
+    """
+    from src.feature_extraction import load_cached_corpus
+    from src.feature_importance import execute_full_feature_influence_analysis
+    from src.visualization import (
+        plot_comprehensive_feature_influence,
+        plot_llm_family_fingerprints,
+        plot_feature_family_ablation,
+    )
+
+    start_time = time.time()
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   STAGE 5: MEASURE FEATURE INFLUENCE FOR OUTPUT (STEP 3)")
+    print("=" * 75)
+
+    processed_dir = ROOT_DIR / "data" / "processed"
+    figures_dir = ROOT_DIR / "reports" / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    if cached_data is None:
+        cached_data = load_cached_corpus(processed_dir)
+
+    results = execute_full_feature_influence_analysis(cached_data, processed_dir)
+
+    df_uni = results["dense_univariate"]
+    df_multi_anova = results["multiclass_anova"]
+    df_ablation = results["ablation"]
+    df_glob = results["global_weights"]
+
+    print(f"\n[1] TOP 12 DENSE FEATURES BY PEARSON r & MUTUAL INFORMATION (BINARY OUTPUT y)")
+    print("  " + "-" * 88)
+    print(f"  {'Feature':<28} | {'Family':<14} | {'Pearson r':<10} | {'ANOVA F':<10} | {'Mutual Info':<11} | {'Bias'}")
+    print("  " + "-" * 88)
+    for _, r in df_uni.head(12).iterrows():
+        print(f"  {r['short_name']:<28} | {r['family']:<14} | {r['pearson_r']:+.4f}    | {r['anova_f']:<10.1f} | {r['mutual_info']:<11.4f} | {r['direction']}")
+    print("  " + "-" * 88)
+
+    print(f"\n[2] TOP 10 FEATURES FOR MULTICLASS AI MODEL ATTRIBUTION (22 AI MODELS ANOVA F)")
+    print("  " + "-" * 80)
+    print(f"  {'Feature':<28} | {'Family':<15} | {'ANOVA F (22 AI Models)':<24} | {'ANOVA F (All 23 Classes)'}")
+    print("  " + "-" * 80)
+    for _, r in df_multi_anova.head(10).iterrows():
+        print(f"  {r['short_name']:<28} | {r['family']:<15} | {r['anova_f_22ai_models']:<24.1f} | {r['anova_f_23classes']:.1f}")
+    print("  " + "-" * 80)
+
+    print(f"\n[3] FEATURE FAMILY ABLATION STUDY RESULTS (VALIDATION SET N = {cached_data['metadata']['n_val']:,})")
+    print("  " + "-" * 96)
+    print(f"  {'Configuration':<34} | {'Dims':<6} | {'Bin Macro F1':<12} | {'Bin AUC':<9} | {'23-Class F1':<11} | {'22-AI Exact Acc'}")
+    print("  " + "-" * 96)
+    for _, r in df_ablation.iterrows():
+        print(
+            f"  {r['config_name']:<34} | {r['n_features']:<6} | "
+            f"{r['binary_macro_f1']*100:6.2f}%      | {r['binary_roc_auc']*100:6.2f}%  | "
+            f"{r['multiclass23_macro_f1']*100:6.2f}%     | {r['ai22_attribution_acc']*100:6.2f}%"
+        )
+    print("  " + "-" * 96)
+
+    print(f"\n[4] GENERATING STAGE 5 VISUALIZATIONS (reports/figures/)")
+    f1 = plot_comprehensive_feature_influence(
+        df_uni, df_glob, figures_dir / "feature_influence_comprehensive.png", top_n=20
+    )
+    print(f"  [+] Saved: {f1.name}")
+
+    f2 = plot_llm_family_fingerprints(
+        results["family_profiles"], df_multi_anova, figures_dir / "llm_family_stylometric_fingerprints.png"
+    )
+    print(f"  [+] Saved: {f2.name}")
+
+    f3 = plot_feature_family_ablation(
+        df_ablation, figures_dir / "feature_family_ablation.png"
+    )
+    print(f"  [+] Saved: {f3.name}")
+
+    print(f"\nStage 5 completed in {time.time() - start_time:.2f}s!")
+    print("=" * 75)
+    return results
+
+
+def run_stage6_baseline_models(cached_data: Optional[Dict[str, Any]] = None):
+    """
+    Step 4 (Run the Baseline Model - Dual Task):
+    Trains, cross-validates, and benchmarks Dummy, Complement Naive Bayes,
+    Logistic Regression (L1/L2), and Linear SVM on both Binary Detection (Human vs AI)
+    and Model Attribution (23 classes & Two-Stage Hierarchical pipeline).
+    """
+    from src.feature_extraction import load_cached_corpus
+    from src.baseline_models import execute_full_baseline_benchmark
+    from src.visualization import (
+        plot_baseline_models_benchmark,
+        plot_baseline_diagnostics_and_confusion,
+        plot_per_llm_detection_and_attribution,
+    )
+
+    start_time = time.time()
+    print("=" * 75)
+    print("   PAN AUTHORSHIP ATTRIBUTION & GENERATIVE AI DETECTION")
+    print("   STAGE 6: DUAL-TASK BASELINE MODELS BENCHMARK (STEP 4)")
+    print("=" * 75)
+
+    processed_dir = ROOT_DIR / "data" / "processed"
+    figures_dir = ROOT_DIR / "reports" / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    if cached_data is None:
+        cached_data = load_cached_corpus(processed_dir)
+
+    bench = execute_full_baseline_benchmark(cached_data, processed_dir)
+
+    df_bin = bench["binary"]["summary_df"]
+    df_multi = bench["multiclass"]["summary_df"]
+    df_genre = bench["cross_genre_df"]
+    df_per_model = bench["per_model_df"]
+
+    print(f"\n[1] TASK 1: BINARY DETECTION BASELINES (0 = HUMAN vs 1 = AI)")
+    print("  " + "-" * 98)
+    print(f"  {'Model':<33} | {'5-Fold CV F1':<15} | {'Val Macro F1':<12} | {'Val Acc':<9} | {'ROC-AUC':<9} | {'FP / FN'}")
+    print("  " + "-" * 98)
+    for _, r in df_bin.iterrows():
+        cv_str = f"{r['cv5_macro_f1_mean']*100:.2f}±{r['cv5_macro_f1_std']*100:.2f}%"
+        print(
+            f"  {r['model_name']:<33} | {cv_str:<15} | "
+            f"{r['val_macro_f1']*100:6.2f}%      | {r['val_accuracy']*100:6.2f}%  | "
+            f"{r['val_roc_auc']*100:6.2f}%  | {r['fp_human_as_ai']} / {r['fn_ai_as_human']}"
+        )
+    print("  " + "-" * 98)
+
+    print(f"\n[2] TASK 2: AUTHOR & AI MODEL ATTRIBUTION (23 CLASSES & TWO-STAGE HIERARCHICAL)")
+    print("  " + "-" * 102)
+    print(f"  {'Model / Pipeline':<52} | {'23c Macro F1':<12} | {'23c Top-1':<9} | {'23c Top-3':<9} | {'7-Family Acc'}")
+    print("  " + "-" * 102)
+    for _, r in df_multi.iterrows():
+        print(
+            f"  {r['model_name']:<52} | {r['val_23class_macro_f1']*100:6.2f}%      | "
+            f"{r['val_23class_top1_acc']*100:6.2f}%  | {r['val_23class_top3_acc']*100:6.2f}%  | "
+            f"{r['val_7family_acc']*100:6.2f}%"
+        )
+    print("  " + "-" * 102)
+
+    print(f"\n[3] GENERATING STAGE 6 VISUALIZATIONS (reports/figures/)")
+    f1 = plot_baseline_models_benchmark(
+        df_bin, df_multi, bench["binary"]["roc_curves"], figures_dir / "baseline_models_benchmark.png"
+    )
+    print(f"  [+] Saved: {f1.name}")
+
+    cm_svm = bench["binary"]["confusion_matrices"]["Linear SVM (Stamatatos Standard)"]
+    f2 = plot_baseline_diagnostics_and_confusion(
+        cm_svm, bench["multiclass"]["family_confusion_matrix"], df_genre,
+        figures_dir / "baseline_diagnostics_and_confusion.png"
+    )
+    print(f"  [+] Saved: {f2.name}")
+
+    f3 = plot_per_llm_detection_and_attribution(
+        df_per_model, figures_dir / "per_llm_detection_and_attribution.png"
+    )
+    print(f"  [+] Saved: {f3.name}")
+
+    print(f"\nStage 6 completed in {time.time() - start_time:.2f}s!")
+    print("=" * 75)
+    return bench
+
+
 def main():
     parser = argparse.ArgumentParser(description="PAN Authorship Attribution & GenAI Pipeline")
-    parser.add_argument("--stage", choices=["1", "2", "3", "9", "10", "13", "all"], default="all",
-                        help="Pipeline stage: '1' (EDA), '2' (Baseline Vector Extraction), '3'/'9'/'13' (Correlation Matrix & Collinearity), '10' (Point 10 Feature Distributions), 'all'")
+    parser.add_argument(
+        "--stage",
+        choices=["1", "2", "3", "4", "5", "6", "9", "10", "13", "all_baseline", "all"],
+        default="all_baseline",
+        help=(
+            "Pipeline stage: '1' (EDA), '2' (Sample Vector Extraction), '3'/'9'/'13' (Correlation Matrix), "
+            "'10' (Feature Distributions), '4' (Full Corpus Extraction & Cache), "
+            "'5' (Measure Feature Influence), '6' (Run Baseline Models), 'all_baseline' (4+5+6), 'all'"
+        ),
+    )
     parser.add_argument("--records", type=int, default=0,
-                        help="Number of records to vectorize (default: 0 for full train set)")
+                        help="Number of records to vectorize (default: 0 for full corpus)")
     args = parser.parse_args()
 
     max_rec = None if args.records == 0 else args.records
@@ -512,9 +734,20 @@ def main():
     if args.stage in ["3", "9", "13", "all"]:
         run_correlation_matrix_pipeline(n_samples=max_rec)
 
-    if args.stage in ["2", "all"]:
+    if args.stage in ["2"]:
         run_baseline_extraction_pipeline(max_records=max_rec or 1000)
+
+    cached = None
+    if args.stage in ["4", "all_baseline", "all"]:
+        cached = run_stage4_extract_and_cache(max_records=max_rec)
+
+    if args.stage in ["5", "all_baseline", "all"]:
+        run_stage5_feature_influence(cached_data=cached)
+
+    if args.stage in ["6", "all_baseline", "all"]:
+        run_stage6_baseline_models(cached_data=cached)
 
 
 if __name__ == "__main__":
     main()
+

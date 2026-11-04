@@ -1,0 +1,24 @@
+model_name,arch_family,true_binary_class,n_val_samples,binary_detection_acc,error_or_evasion_rate,exact_model_attribution_acc,family_attribution_acc,most_confused_with
+human,Human,Human (0),1277,0.9796,0.0204,0.9796,0.9796,gemini-pro-paraphrase
+o3-mini,OpenAI (GPT/o3),AI (1),132,0.9924,0.0076,0.9773,0.9848,human
+gpt-4.5-preview,OpenAI (GPT/o3),AI (1),45,1.0,0.0,0.9556,0.9778,gemini-1.5-pro
+gpt-4o-mini,OpenAI (GPT/o3),AI (1),214,1.0,0.0,0.9065,0.9766,gpt-4o
+llama-3.3-70b-instruct,Meta (LLaMA),AI (1),54,1.0,0.0,0.8889,0.9444,falcon3-10b-instruct
+gpt-3.5-turbo,OpenAI (GPT/o3),AI (1),200,1.0,0.0,0.885,0.925,gpt-4-turbo
+gemini-2.0-flash,Google (Gemini/PaLM),AI (1),139,1.0,0.0,0.8849,0.9424,gemini-1.5-pro
+deepseek-r1-distill-qwen-32b,DeepSeek / Qwen,AI (1),106,0.9906,0.0094,0.8774,0.8774,falcon3-10b-instruct
+ministral-8b-instruct-2410,Mistral AI,AI (1),139,1.0,0.0,0.8345,0.8417,falcon3-10b-instruct
+falcon3-10b-instruct,TII Falcon,AI (1),113,1.0,0.0,0.7876,0.7876,gpt-4o
+gemini-1.5-pro,Google (Gemini/PaLM),AI (1),145,0.9586,0.0414,0.7724,0.8276,human
+llama-3.1-8b-instruct,Meta (LLaMA),AI (1),158,0.981,0.019,0.7278,0.7848,ministral-8b-instruct-2410
+gpt-4o,OpenAI (GPT/o3),AI (1),209,1.0,0.0,0.7081,0.8565,gpt-4o-mini
+qwen1.5-72b-chat-8bit,DeepSeek / Qwen,AI (1),63,1.0,0.0,0.6984,0.6984,gpt-4-turbo
+gemini-pro-paraphrase,Google (Gemini/PaLM),AI (1),70,0.9571,0.0429,0.6714,0.7857,gpt-3.5-turbo
+gemini-pro,Google (Gemini/PaLM),AI (1),59,0.9831,0.0169,0.661,0.7627,gemini-pro-paraphrase
+gpt-4-turbo-paraphrase,OpenAI (GPT/o3),AI (1),59,0.9831,0.0169,0.661,0.7966,gpt-4o
+mistral-7b-instruct-v0.2,Mistral AI,AI (1),68,0.9853,0.0147,0.5735,0.6618,mixtral-8x7b-instruct-v0.1
+gpt-4-turbo,OpenAI (GPT/o3),AI (1),63,1.0,0.0,0.5714,0.9683,gpt-4o
+text-bison-002,Google (Gemini/PaLM),AI (1),69,1.0,0.0,0.5507,0.5942,mixtral-8x7b-instruct-v0.1
+llama-2-70b-chat,Meta (LLaMA),AI (1),65,1.0,0.0,0.4923,0.7538,llama-2-7b-chat
+llama-2-7b-chat,Meta (LLaMA),AI (1),72,0.9861,0.0139,0.4583,0.6389,llama-2-70b-chat
+mixtral-8x7b-instruct-v0.1,Mistral AI,AI (1),70,0.9714,0.0286,0.3571,0.5143,llama-2-70b-chat
