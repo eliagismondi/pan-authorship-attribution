@@ -1,0 +1,355 @@
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\definecolor{navy}{HTML}{1E3A8A}
+\definecolor{slate}{HTML}{334155}
+\definecolor{quotebg}{HTML}{F8FAFC}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=navy,
+    urlcolor=navy,
+    citecolor=navy
+}
+
+% Custom environment for Speaker Notes
+\newenvironment{speakernote}{%
+    \par\vspace{0.2cm}%
+    \noindent\textbf{\textcolor{navy}{Speaker Note (Ready to Deliver):}}\par\vspace{0.1cm}%
+    \begin{quote}\itshape\color{slate}%
+}{%
+    \end{quote}\vspace{0.2cm}%
+}
+
+\title{\textbf{Complete Presentation Guide, Theoretical Mastery \& Speaker Notes (Slides 1--8)}\\
+\large PAN 2025 Shared Task 1 --- Generative AI Detection \& Authorship Attribution}
+\author{\textbf{Elia Gismondi} \\ Politecnico di Lodz}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\vspace{0.5cm}
+\hrule
+\vspace{0.5cm}
+
+% =========================================================================
+% SLIDE 1
+% =========================================================================
+\section{Slide 1 --- Title, Scope \& Dual-Task Architecture}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+This presentation covers the four methodological steps implemented after our initial Exploratory Data Analysis (EDA):
+\begin{enumerate}[noitemsep]
+    \item \textbf{Extract features:} Transform unstructured raw texts into an interpretable numerical vector space $\mathbb{R}^{N \times D}$.
+    \item \textbf{Run them:} Execute the feature pipeline across all \textbf{27,296 documents} in the PAN 2025 corpus ($N_{\text{train}} = 23,707$ and $N_{\text{val}} = 3,589$) across three literary domains (\textit{Fiction}, \textit{Essays}, \textit{News}).
+    \item \textbf{Measure their influence for output:} Mathematically quantify how much each individual feature and feature family drives the model's predictions.
+    \item \textbf{Run the baseline model:} Train, cross-validate, and benchmark canonical baseline classifiers from the authorship attribution literature.
+\end{enumerate}
+
+\noindent\textbf{Key Value Proposition (Dual-Task Formulation):}
+Rather than stopping at binary classification ($y_{\text{bin}} \in \{0, 1\}$, \textbf{Task 1: Binary Detection}), we leveraged the corpus metadata to solve the much harder problem of \textbf{LLM Fingerprinting / Model Attribution (Task 2)}: predicting \textbf{which specific author or LLM among $k = 23$ candidates} ($1$ human class + $22$ distinct LLMs spanning $6$ major vendor families: OpenAI, Google Gemini/PaLM, Meta LLaMA, Mistral AI, DeepSeek/Qwen, and TII Falcon) generated each text.
+
+\begin{speakernote}
+``Good morning everyone. In this presentation, we cover the four core steps of our experimental pipeline for the PAN 2025 Shared Task: feature extraction, full-corpus vectorization, statistical feature influence analysis, and baseline model evaluation. Importantly, we framed our pipeline as a Dual-Task system: first, Binary Detection to separate Human from AI-generated texts across 27,296 documents; and second, fine-grained Model Attribution across 23 candidate classes, identifying which specific LLM architecture wrote each text.''
+\end{speakernote}
+
+\subsection*{2. Defense Q\&A}
+\begin{itemize}[noitemsep]
+    \item \textbf{Q: Why did you frame the problem as a Dual-Task system instead of binary only?}
+    \item \textbf{A:} Because in forensic stylometry, detecting that a text is synthetic is only the first step; attributing the text to a specific generator family (OpenAI vs.\ LLaMA vs.\ Gemini) tests whether our stylometric and $N$-gram features capture deep architectural decoding signatures rather than superficial binary artifacts.
+\end{itemize}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 2
+% =========================================================================
+\section{Slide 2 --- Steps 1 \& 2: Multi-Level Feature Space ($D = 4,600$) \& Corpus Execution}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+In authorship attribution literature (Stamatatos, 2009), relying solely on content words causes \textbf{topic confounding} (the classifier learns \textit{what} the text is about rather than \textit{who} wrote it). To guarantee topic-invariance, our \textbf{4,600-dimensional vector space} combines four complementary levels:
+
+\begin{enumerate}[itemsep=3pt]
+    \item \textbf{Stylometry \& Lexical Richness ($30$ dense features):} Captures macro-structural rhythm and vocabulary diversity ($V$ unique types over $N$ total tokens):
+    \begin{align*}
+        \text{TTR} &= \frac{V}{N}, \qquad
+        R_{\text{Guiraud}} = \frac{V}{\sqrt{N}}, \qquad
+        K_{\text{Yule}} = 10^4 \cdot \frac{\sum_{m} m^2 V(m, N) - N}{N^2}, \\[4pt]
+        W_{\text{Brunet}} &= N^{V^{-0.172}}, \qquad
+        R_{\text{Honor\'e}} = \frac{100 \ln N}{1 - V_1 / V} \quad (\text{where } V_1 = \text{hapax legomena}).
+    \end{align*}
+    Also includes word/sentence lengths, $9$ specific punctuation densities, and custom syntactic ratios:
+    \[
+        \text{FLR} = \frac{N_{\text{func}}}{N - N_{\text{func}}}, \qquad
+        \text{ExpPunct} = \frac{n_{!} + n_{?} + n_{\text{dash}} + n_{\text{quote}}}{N_{\text{punct}}}, \qquad
+        \text{PauseRatio} = \frac{n_{\text{comma}}}{N_{\text{sentences}}}.
+    \]
+    \item \textbf{Function Words ($70$ dense features):} Relative frequencies $f_w / N$ of $70$ closed-class grammatical markers (prepositions, articles, auxiliaries, conjunctions: \textit{the, of, and, to, so, was\dots}). These remain invariant across topics.
+    \item \textbf{Character Sub-Word $N$-Grams ($3,000$ sparse TF-IDF features):} Boundary-aware character $3$-to-$4$-grams (\texttt{analyzer='char\_wb'}). Captures morphological prefixes, suffixes (\texttt{-ing}, \texttt{-tion}, \texttt{-ly}), word stems, and punctuation habits. We apply \textbf{sublinear TF scaling}:
+    \[
+        \text{wf}_{t,d} = \big(1 + \ln \text{tf}_{t,d}\big) \cdot \ln\!\left(\frac{N}{\text{df}_t}\right)
+    \]
+    so that repeated words in longer texts do not distort the vector norm.
+    \item \textbf{Word $N$-Grams ($1,500$ sparse TF-IDF features):} Lexical unigrams and bigrams ($n \in [1, 2]$) preserving stop-words to capture short syntactic collocations (\textit{``said the''}, \textit{``as well''}).
+\end{enumerate}
+
+\noindent\textbf{Strict Data Leakage Prevention \& Execution Audit:}
+\begin{itemize}[noitemsep]
+    \item Both \texttt{StandardScaler} ($z = \frac{x - \mu_{\text{train}}}{\sigma_{\text{train}}}$ on the $100$ dense features) and \texttt{TfidfVectorizer} vocabularies are fitted \textbf{strictly on the $23,707$ Training texts} and applied to the $3,589$ Validation texts.
+    \item \textbf{Throughput:} $416.6\text{ docs/sec}$ on Train ($56.91\text{ s}$) and $514.4\text{ docs/sec}$ on Val ($6.98\text{ s}$); CSR sparsity $= 63.19\%$; integrity check $= \mathbf{0\text{ NaN}, 0\text{ Inf}}$.
+\end{itemize}
+
+\noindent\textbf{Visual Walkthrough (\texttt{stylometric\_distributions}):}
+\begin{itemize}[noitemsep]
+    \item \textit{Left (TTR):} Blue curve (AI) is shifted right ($\mu_{\text{AI}} = 0.522$ vs.\ $\mu_{\text{Human}} = 0.471$) because LLM decoding repetition penalties discourage reusing the same token locally.
+    \item \textit{Center (Punctuation Density):} Green curve (Human) is shifted right ($\mu_{\text{Human}} = 0.0375$ vs.\ $\mu_{\text{AI}} = 0.0284$), reflecting $\sim 32\%$ higher human punctuation usage.
+    \item \textit{Right (Average Word Length):} Blue curve (AI) shifts toward longer words ($5.02$ vs.\ $4.34$ chars), reflecting formal, Latinate LLM vocabulary.
+\end{itemize}
+
+\begin{speakernote}
+``In Steps 1 and 2, we engineered a 4,600-dimensional feature space combining four topic-invariant families: 30 dense stylometric and lexical richness indices, 70 closed-class function words, 3,000 sub-word character 3-to-4-grams, and 1,500 word 1-to-2-grams with sublinear TF-IDF scaling. To strictly prevent data leakage, all scalers and vocabularies were fitted exclusively on the 23,707 training texts and applied to the 3,589 validation texts. The extraction runs at over 415 documents per second with zero NaN or infinite values. As shown in the KDE plots on the right, AI texts exhibit systematically higher lexical diversity (TTR) and longer average word lengths, whereas human authors use significantly denser punctuation.''
+\end{speakernote}
+
+\subsection*{2. Defense Q\&A}
+\begin{itemize}[noitemsep]
+    \item \textbf{Q: Why did you apply \texttt{StandardScaler} only to the 100 dense features and not to the 4,500 TF-IDF $N$-grams?}
+    \item \textbf{A:} The $100$ dense features have heterogeneous physical units (e.g., \texttt{word\_count} reaches $4,000$ while \texttt{comma\_density} is $\sim 0.01$), so $z$-score standardization is essential for linear models. Conversely, TF-IDF vectors are already $L_2$-normalized ($\|\mathbf{x}\|_2 = 1$), and mean-centering them would destroy the $63.2\%$ sparsity of the CSR matrix.
+\end{itemize}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 3
+% =========================================================================
+\section{Slide 3 --- Step 3A: Feature Influence on Binary Output ($y \in \{0, 1\}$)}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+We quantified feature influence on the binary target ($y=0$ Human, $y=1$ AI) across all $N = 23,707$ training texts at two complementary levels:
+
+\begin{enumerate}[itemsep=3pt]
+    \item \textbf{Univariate Statistical Influence (Left Panel --- Pearson $r$, Spearman $\rho$, ANOVA $F$, Mutual Information):}
+    \begin{itemize}[noitemsep]
+        \item \textbf{Top Human Markers ($r < 0$):} \texttt{functional\_lexical\_ratio} ($r = -0.6125$, $\rho = -0.6694$, ANOVA $F = 14,233.9$, $\text{MI} = 0.2436$) is the single strongest univariate predictor: spontaneous human prose uses a much denser grammatical scaffolding. Second is \texttt{semicolon\_density} ($r = -0.5820$, $F = 12,140.4$, $\text{MI} = \mathbf{0.2770}$), followed by function words \texttt{so} ($r = -0.4502$), \texttt{was} ($r = -0.4398$), and \texttt{dash\_density} ($r = -0.4298$).
+        \item \textbf{Top AI Markers ($r > 0$):} \texttt{avg\_word\_len} ($r = +0.5755$, $F = 11,739.4$), \texttt{word\_len\_std} ($r = +0.5620$, $F = 10,944.3$), and \texttt{ttr} ($r = +0.3867$).
+    \end{itemize}
+    \item \textbf{Multivariate Model-Based Influence (Right Panel --- L2 Logistic Regression Weights $\beta_j$ \& Permutation Importance):}
+    \begin{itemize}[noitemsep]
+        \item \textbf{Permutation Importance ($\Delta \text{Macro F1}$ on Val):} Randomly shuffling \texttt{avg\_word\_len} causes a massive $\mathbf{-14.06\%}$ drop in Macro F1 ($\beta = +3.063$, Odds Ratio $e^{\beta} = 21.39$).
+        \item \textbf{RLHF Lexical Hallmarks ($\beta_j > 0$):} Across all $4,600$ dimensions, the strongest positive AI weights belong to instruction-tuned vocabulary: \textit{``significant''} ($\beta = +2.03$), \textit{``ongoing''} ($\beta = +1.54$), \textit{``impact''} ($\beta = +1.53$), \textit{``despite''} ($\beta = +1.46$), and \textit{``crucial''} ($\beta = +1.42$).
+        \item \textbf{Human Discourse Connectors ($\beta_j < 0$):} \textit{``because''} ($\beta = -2.09$), \textit{``although''} ($\beta = -1.83$), \textit{``as well''} ($\beta = -1.67$), \textit{``answered''} ($\beta = -1.58$), and \textit{``said the''} ($\beta = -1.49$).
+    \end{itemize}
+\end{enumerate}
+
+\noindent\textbf{Pro Technical Note (Why \texttt{functional\_lexical\_ratio} has $r = -0.613$ on the left but $\beta = +2.67$ on the right):}
+Univariately, \texttt{functional\_lexical\_ratio} correlates negatively with AI. However, inside the multivariate regression model, all \textbf{$70$ individual function words} (\texttt{the}, \texttt{and}, \texttt{of}, \texttt{is}, \texttt{was}) are simultaneously present with strong negative weights ($\beta \in [-1.47, -0.88]$). Because \texttt{functional\_lexical\_ratio} is composed of the sum of those exact $70$ function words and is collinear with \texttt{avg\_word\_len} ($r = -0.82$), the regularized linear model uses it as a \textbf{collinear suppressor/balancing variable} to avoid double-counting the $70$ individual function-word weights.
+
+\begin{speakernote}
+``In Step 3A, we quantified feature influence on the binary target using both univariate statistics on the left and multivariate regularized Logistic Regression weights on the right. Univariately, the strongest human markers are functional-to-lexical ratio ($r = -0.613$) and semicolon density ($r = -0.582$), while average word length ($r = +0.576$) is the primary AI marker---causing a 14.1\% drop in Macro F1 under permutation importance. On the right, inspecting the global 4,600-dimensional model reveals classic RLHF vocabulary biases: words like `significant', `ongoing', `impact', `despite', and `crucial' carry the highest positive weights toward AI, whereas causal connectors like `because' and `although' strongly predict human authorship.''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 4
+% =========================================================================
+\section{Slide 4 --- Step 3B: Discriminating Across 22 AI Models (Multiclass ANOVA)}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+Pearson $r$ only applies to binary or ordinal targets. To measure how strongly each feature separates the \textbf{$22$ unordered AI models} ($N_{\text{AI, train}} = 14,606$), we compute the \textbf{Multiclass One-Way ANOVA $F$-statistic}:
+\[
+    F = \frac{\text{MS}_{\text{between-models}}}{\text{MS}_{\text{within-model}}}
+      = \frac{\sum_{c=1}^{K} n_c (\bar{x}_c - \bar{x})^2 / (K - 1)}{\sum_{c=1}^{K} \sum_{i \in c} (x_{i} - \bar{x}_c)^2 / (N - K)}.
+\]
+A high $F$-statistic indicates that the feature clusters tightly within each LLM architecture while varying substantially across different vendors.
+
+\noindent\textbf{Top Discriminators Across the 22 AI Models:}
+\begin{itemize}[noitemsep]
+    \item \texttt{uppercase\_ratio} ($F = 699.8$): Captures capitalization, structured headers, and acronym habits.
+    \item \textbf{Lexical Richness Cluster:} \texttt{root\_ttr} ($F = 529.9$), \texttt{hapax\_ratio} ($F = 462.1$), \texttt{brunet\_w} ($F = 400.9$), \texttt{ttr} ($F = 379.3$), and \texttt{honore\_r} ($F = 324.5$).
+    \item \textbf{Structural \& Prosodic Cluster:} \texttt{char\_count} ($F = 339.8$), \texttt{comma\_density} ($F = 337.1$), \texttt{word\_count} ($F = 323.3$), and \texttt{sentence\_count} ($F = 275.1$).
+\end{itemize}
+
+\noindent\textbf{Visual Walkthrough (\texttt{llm\_family\_stylometric\_fingerprints.png}):}
+Each cell reports the mean standardized $Z$-score relative to the corpus mean:
+\begin{itemize}[noitemsep]
+    \item \textbf{OpenAI (\texttt{gpt-4o}, \texttt{o3-mini}, \texttt{gpt-3.5}):} Highest vocabulary diversity ($\text{TTR} = +0.65z$, $\text{hapax} = +0.58z$, $\text{Brunet's } W = -0.63z$) and lowest comma density ($-0.50z$).
+    \item \textbf{DeepSeek / Qwen (\texttt{deepseek-r1-distill-qwen-32b}):} Reasoning-distilled models generate much longer multi-sentence texts ($\text{sentence\_count} = +0.80z$, $\text{char\_count} = +0.61z$, $\text{word\_count} = +0.60z$) with lower TTR ($-0.46z$).
+    \item \textbf{TII Falcon (\texttt{falcon3-10b-instruct}):} Highest hapax legomena ratio ($+0.73z$) and Honor\'e's $R$ ($+0.65z$).
+\end{itemize}
+
+\begin{speakernote}
+``Moving to Step 3B, we asked: which features allow us to distinguish between the 22 different AI models? Using multiclass one-way ANOVA across the AI corpus, we ranked features by their between-model to within-model variance ratio. Uppercase ratio ($F = 700$) and lexical richness indices---Root TTR, Hapax ratio, and Brunet's W---emerge as the strongest LLM fingerprints. The standardized Z-score heatmap on the right clearly illustrates each vendor's signature: OpenAI models maximize vocabulary diversity (TTR $+0.65z$) while minimizing comma density ($-0.50z$); DeepSeek reasoning models produce significantly longer, multi-sentence outputs ($+0.80z$); and Falcon exhibits the highest hapax legomena ratio ($+0.73z$).''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 5
+% =========================================================================
+\section{Slide 5 --- Step 3C: Feature Family Ablation \& Leave-One-Out Impact}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+To prove that all four feature families contribute non-redundant information, we evaluated individual families, sub-groups, and \textbf{Leave-One-Family-Out (LOFO)} configurations on the Validation Set ($N = 3,589$):
+
+\begin{center}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Feature Space Configuration} & \textbf{Dims ($D$)} & \textbf{Task 1: Bin Macro F1} & \textbf{Task 2: 23c Macro F1} & \textbf{$\Delta$ 23c F1 vs.\ Full} \\
+\midrule
+1.\ Stylometry Only & $30$ & $93.61\%$ & $42.00\%$ & $-31.27\%$ \\
+2.\ Function Words Only & $70$ & $92.31\%$ & $34.83\%$ & $-38.44\%$ \\
+3.\ Dense Combined (Sty + Func) & $100$ & $95.90\%$ & $56.97\%$ & $-16.30\%$ \\
+4.\ Word $N$-Grams Only ($1..2$) & $1,500$ & $97.72\%$ & $61.38\%$ & $-11.89\%$ \\
+5.\ Char $N$-Grams Only ($3..4$) & $3,000$ & $97.53\%$ & $64.31\%$ & $-8.96\%$ \\
+6.\ $N$-Grams Combined (Char + Word) & $4,500$ & $\mathbf{98.42\%}$ & $68.34\%$ & $-4.93\%$ \\
+\textbf{7.\ Full Pipeline (All 4 Families)} & $\mathbf{4,600}$ & $97.99\%$ & $\mathbf{73.27\%}$ & $\mathbf{0.00\%}$ \\
+\midrule
+LOFO: w/o Stylometry & $4,570$ & $97.84\%$ & $68.51\%$ & $\mathbf{-4.76\%}$ \\
+LOFO: w/o Char $N$-Grams & $1,600$ & $97.77\%$ & $70.21\%$ & $\mathbf{-3.06\%}$ \\
+LOFO: w/o Word $N$-Grams & $3,100$ & $97.56\%$ & $71.69\%$ & $-1.58\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Key Takeaways from the Ablation Study:}
+\begin{enumerate}[noitemsep]
+    \item \textbf{Power of Compact Stylometry:} With only $30$ stylometric features, the classifier already reaches $\mathbf{93.61\%}$ \textbf{Binary Macro F1} ($97.91\%$ ROC-AUC).
+    \item \textbf{Synergy on 23-Class Attribution:} Removing the $30$ stylometric features from the full pipeline (\texttt{LOFO: w/o Stylometry}) causes the largest single performance drop on $23$-class LLM attribution ($\mathbf{-4.76}$ \textbf{percentage points}), followed by removing Character $N$-Grams ($\mathbf{-3.06}$ \textbf{percentage points}).
+\end{enumerate}
+
+\begin{speakernote}
+``In Step 3C, we conducted a Feature Family Ablation study to measure the unique contribution of each feature group on both tasks. On the left, remarkably, using only our 30 dense stylometric features achieves 93.61\% Macro F1 on binary detection. However, for 23-class model attribution---shown in red---combining dense stylometrics with character and word N-grams is essential, boosting Macro F1 from 42.0\% up to 73.27\%. On the right, our Leave-One-Family-Out analysis proves this synergy: dropping the 30 stylometric features from the full pipeline causes the sharpest drop in 23-class attribution ($-4.76$ percentage points), followed by character N-grams ($-3.06$ points).''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 6
+% =========================================================================
+\section{Slide 6 --- Step 4A: Dual-Task Baseline Models Benchmark ($N_{\text{val}} = 3,589$)}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+We benchmarked five baseline architectures across both tasks using $5$-Fold Stratified Cross-Validation on Train ($N = 23,707$) and official evaluation on Validation ($N = 3,589$):
+
+\begin{enumerate}[itemsep=3pt]
+    \item \textbf{Dummy Classifier (Majority Class):} Predicts the majority class ($39.18\%$ Binary Macro F1; $35.58\%$ $23$-class Top-$1$ Accuracy, $2.28\%$ Macro F1).
+    \item \textbf{Complement Naive Bayes (\texttt{ComplementNB}):} Probabilistic classifier designed for imbalanced text corpora (trained on $\text{MinMaxScaler } [0, 1]$ dense features + TF-IDF). Fits in $0.04\text{ s}$ and achieves $\mathbf{90.15\%}$ \textbf{Binary Macro F1} ($96.50\%$ ROC-AUC), but drops to $49.87\%$ Top-$1$ Accuracy on $23$ classes because overlapping character and word $N$-grams violate its conditional independence assumption.
+    \item \textbf{Logistic Regression (L1 Lasso \& L2 Ridge):} Discriminative linear classifiers optimizing regularized cross-entropy. Reach $\mathbf{97.84\%}$ \textbf{(L1)} and $\mathbf{97.99\%}$ \textbf{(L2) Binary Macro F1} ($99.71\%$ ROC-AUC) and $\mathbf{81.64\%}$ \textbf{Top-1 Accuracy} ($94.59\%$ Top-3) on $23$ classes.
+    \item \textbf{Linear SVM (\texttt{LinearSVC} --- Stamatatos Standard):} Margin-maximizing hyperplane classifier in $\mathbb{R}^{4,600}$. Achieves the best overall performance:
+    \begin{itemize}[noitemsep]
+        \item \textbf{Task 1 (Binary):} $\mathbf{98.88\% \pm 0.15\%}$ in $5$-Fold CV and $\mathbf{98.60\%}$ \textbf{Validation Macro F1} ($98.72\%$ Accuracy, $\mathbf{99.84\%}$ \textbf{ROC-AUC}), committing only \textbf{26 False Positives and 20 False Negatives} out of $3,589$ validation texts.
+        \item \textbf{Task 2 (23-Class Attribution):} $\mathbf{84.12\%}$ \textbf{Top-1 Accuracy}, $\mathbf{94.93\%}$ \textbf{Top-3 Accuracy}, $\mathbf{73.27\%}$ \textbf{Macro F1}, and $\mathbf{89.05\%}$ \textbf{7-Family Attribution Accuracy}.
+    \end{itemize}
+    \item \textbf{Two-Stage Hierarchical SVM (\texttt{Stage 1 Binary SVM $\to$ Stage 2 22-LLM Specialist SVM}):}
+    Uses the Binary SVM at Stage 1 to filter Human vs.\ AI, and routes AI-flagged texts to a Stage 2 SVM trained strictly on the $22$ AI models ($N_{\text{AI, train}} = 14,606$). It achieves the \textbf{highest exact attribution accuracy on AI texts ($\mathbf{76.08\%}$)} and the \textbf{highest 7-Family Macro F1 ($\mathbf{83.14\%}$)}.
+\end{enumerate}
+
+\begin{speakernote}
+``In Step 4A, we benchmarked our baseline classifiers on both tasks using 5-fold cross-validation on Train and evaluation on the 3,589 validation texts. For Binary Detection, while Complement Naive Bayes reaches 90.2\% Macro F1, discriminative linear models---L1/L2 Logistic Regression and Linear SVM---exceed 98\% Macro F1. Specifically, Linear SVM achieves the best binary performance with 98.60\% Validation Macro F1 and 99.84\% ROC-AUC, making only 46 total errors out of 3,589 texts. For Task 2---predicting which of the 23 authors or AI models wrote the text---Linear SVM and our Two-Stage Hierarchical SVM achieve 84.1\% Top-1 accuracy, nearly 95\% Top-3 accuracy, and 89.1\% accuracy at identifying the LLM vendor family.''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 7
+% =========================================================================
+\section{Slide 7 --- Step 4B: Confusion Matrices \& Cross-Domain Generalization}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+Slide 7 examines three diagnostic views for our best baseline (\texttt{Linear SVM} / \texttt{Two-Stage SVM}):
+\begin{enumerate}[itemsep=3pt]
+    \item \textbf{Left Panel --- $2 \times 2$ Binary Confusion Matrix:}
+    \begin{itemize}[noitemsep]
+        \item True Humans ($N = 1,277$): $\mathbf{1,251}$ \textbf{True Negatives ($\mathbf{98.0\%}$ specificity)} and only $26$ False Positives ($2.0\%$).
+        \item True AI ($N = 2,312$): $\mathbf{2,292}$ \textbf{True Positives ($\mathbf{99.1\%}$ sensitivity/recall)} and only $20$ False Negatives ($0.9\%$).
+    \end{itemize}
+    \item \textbf{Center Panel --- $7 \times 7$ Row-Normalized Architectural Family Confusion Matrix (\%):}
+    \begin{itemize}[noitemsep]
+        \item Strong diagonal recall across all vendor families: \textbf{Human ($98.0\%$)}, \textbf{OpenAI ($92.7\%$)}, \textbf{Google Gemini ($81.3\%$)}, \textbf{DeepSeek/Qwen ($81.1\%$)}, \textbf{TII Falcon ($78.8\%$)}, \textbf{Meta LLaMA ($77.4\%$)}, and \textbf{Mistral AI ($71.5\%$)}.
+        \item Minor off-diagonal confusion occurs primarily between open-weight \textbf{Mistral and Meta LLaMA ($10.5\%$)}, which share closely related decoder architectures and instruction-tuning datasets.
+    \end{itemize}
+    \item \textbf{Right Panel --- Cross-Genre Generalization (\textit{Fiction}, \textit{Essays}, \textit{News}):}
+    \begin{center}
+    \small
+    \begin{tabular}{lccccc}
+    \toprule
+    \textbf{Genre} & \textbf{Val Samples} & \textbf{Bin Macro F1} & \textbf{Bin Accuracy} & \textbf{FN Rate (AI Evasion)} & \textbf{23-Class Exact Acc} \\
+    \midrule
+    \textbf{Fiction} & $1,837$ & $\mathbf{99.29\%}$ & $99.29\%$ & $0.99\%$ & $\mathbf{96.30\%}$ \\
+    \textbf{Essays}  & $665$   & $\mathbf{98.57\%}$ & $99.10\%$ & $0.38\%$ & $77.59\%$ \\
+    \textbf{News}    & $1,087$ & $\mathbf{96.05\%}$ & $97.52\%$ & $1.03\%$ & $66.70\%$ \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+    \textit{Forensic Interpretation:} Binary detection exceeds $96\%$ Macro F1 across all genres. Meanwhile, $23$-class exact model attribution peaks at $\mathbf{96.30\%}$ \textbf{in Fiction} (where creative narrative freedom exposes each LLM's idiosyncratic dialogue and punctuation habits) compared to $66.70\%$ in \textbf{News} (where rigid journalistic formatting compresses stylistic variance across models).
+\end{enumerate}
+
+\begin{speakernote}
+``Slide 7 presents our error diagnostics across three views. On the left, the binary confusion matrix confirms balanced precision and recall: 98.0\% recall on human texts and 99.1\% recall on AI texts. In the center, the 7-by-7 architectural family confusion matrix shows strong diagonal recall---reaching 98.0\% for Human and 92.7\% for OpenAI---with minor cross-family confusion occurring mainly between open-weight LLaMA and Mistral models. On the right, cross-genre evaluation demonstrates robust domain generalization: binary Macro F1 stays above 96\% across all genres, while 23-class model attribution peaks at 96.3\% in Fiction, where stylistic freedom amplifies each LLM's unique fingerprint, compared to 66.7\% in standardized News reporting.''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SLIDE 8
+% =========================================================================
+\section{Slide 8 --- Step 4C: Per-Author \& Per-LLM Detection and Attribution}
+
+\subsection*{1. Deep Context \& Subject Mastery}
+Slide 8 disaggregates performance across all \textbf{$23$ individual candidate classes} on the Validation Set ($N = 3,589$) across three metrics:
+\begin{itemize}[noitemsep]
+    \item \textbf{Blue Bar (Task 1: Binary Detection Recall):} $\mathbf{13\text{ out of }22\text{ AI models}}$ achieve $\mathbf{100.0\%}$ \textbf{binary detection recall (zero evasion)}. Even adversarial paraphrased models (\texttt{gpt-4-turbo-paraphrase} and \texttt{gemini-pro-paraphrase}) are detected at $\mathbf{98.31\%}$ and $\mathbf{95.71\%}$.
+    \item \textbf{Red Bar (Task 2: Exact 23-Class Attribution) vs.\ Green Bar (Task 2: 7-Family Attribution):}
+    \begin{itemize}[noitemsep]
+        \item Distinctive models achieve near-perfect exact attribution: \texttt{human} ($\mathbf{97.96\%}$), \texttt{o3-mini} ($\mathbf{97.73\%}$ exact, $\mathbf{98.48\%}$ family), \texttt{gpt-4.5-preview} ($\mathbf{95.56\%}$ exact, $\mathbf{97.78\%}$ family), \texttt{gpt-4o-mini} ($\mathbf{90.65\%}$ exact, $\mathbf{97.66\%}$ family), \texttt{llama-3.3-70b-instruct} ($\mathbf{88.89\%}$ exact, $\mathbf{94.44\%}$ family), \texttt{gpt-3.5-turbo} ($\mathbf{88.50\%}$), \texttt{gemini-2.0-flash} ($\mathbf{88.49\%}$), and \texttt{deepseek-r1} ($\mathbf{87.74\%}$).
+    \end{itemize}
+\end{itemize}
+
+\noindent\textbf{The Key Scientific Insight (``Sibling Model Confusion''):}
+Whenever exact $23$-class accuracy (red bar) drops on a model, its vendor family accuracy (green bar) remains high because misclassifications occur almost exclusively between \textbf{sibling models of the same series}:
+\begin{itemize}[noitemsep]
+    \item \texttt{gpt-4-turbo}: Exact accuracy is $57.14\%$ (red), but OpenAI family accuracy jumps to $\mathbf{96.83\%}$ (green) because it is confused with its sibling \texttt{gpt-4o}!
+    \item \texttt{llama-2-70b-chat} ($49.23\%$ exact vs.\ $\mathbf{75.38\%}$ family) and \texttt{llama-2-7b-chat} ($45.83\%$ exact) are confused almost exclusively with each other (identical Meta LLaMA-2 pre-training and tokenizer at two parameter scales).
+    \item \texttt{mistral-7b-instruct} ($57.35\%$) is primarily confused with \texttt{mixtral-8x7b-instruct} (a Mixture-of-Experts built from Mistral-7B weights).
+\end{itemize}
+
+\begin{speakernote}
+``Finally, Slide 8 breaks down performance across each of the 23 individual candidate models. First, looking at the blue bars, binary detection recall reaches 100\%---zero evasion---on 13 out of the 22 AI models, and remains above 95.7\% even on paraphrased adversarial models like Gemini-Pro-Paraphrase. Second, looking at the red bars, exact 23-class model attribution exceeds 88\% to 97\% on distinctive models such as o3-mini (97.7\%), GPT-4.5 (95.6\%), GPT-4o-mini (90.7\%), and LLaMA-3.3-70B (88.9\%). Most importantly, comparing the red and green bars reveals that whenever exact model attribution drops---for instance on GPT-4-Turbo (57.1\% exact vs.\ 96.8\% family accuracy) or LLaMA-2-7B vs.\ 70B---misclassifications occur almost exclusively between sibling models of the exact same architecture family. This confirms that our feature space genuinely captures the underlying genealogical signature of each LLM family. Thank you, and I am happy to take any questions.''
+\end{speakernote}
+
+\vspace{0.3cm}\hrule\vspace{0.3cm}
+
+% =========================================================================
+% SECTION 9: GLOSSARY
+% =========================================================================
+\section{Quick Mathematical \& Conceptual Glossary for Defense Q\&A}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{p{0.23\textwidth} p{0.33\textwidth} p{0.37\textwidth}}
+\toprule
+\textbf{Metric / Concept} & \textbf{Mathematical Formula} & \textbf{Why We Use It in This Project} \\
+\midrule
+\textbf{Macro F1-Score} & $\displaystyle \text{Macro-F1} = \frac{1}{k}\sum_{c=1}^{k} \frac{2 P_c R_c}{P_c + R_c}$ & Official PAN metric: weights all $k$ classes equally regardless of sample size imbalance. \\
+\textbf{Sublinear TF-IDF} & $\displaystyle \text{wf}_{t,d} = (1 + \ln \text{tf}_{t,d}) \cdot \ln\!\left(\frac{N}{\text{df}_t}\right)$ & Dampens term-frequency bursts in long texts so document length does not distort lexical weights. \\
+\textbf{One-Way ANOVA $F$} & $\displaystyle F = \frac{\text{MS}_{\text{between}}}{\text{MS}_{\text{within}}}$ & Quantifies how strongly a feature separates the $22$ unordered LLM classes relative to within-model variance. \\
+\textbf{Mutual Information} & $\displaystyle I(X;Y) = \sum_{x,y} p(x,y)\ln\frac{p(x,y)}{p(x)p(y)}$ & Captures arbitrary \textbf{non-linear} dependencies between feature $X$ and target $Y$, complementing linear Pearson $r$. \\
+\textbf{Permutation Importance} & $\displaystyle \Delta F1_j = F1_{\text{val}} - F1_{\text{val, perm}(X_j)}$ & Measures true generalization reliance on feature $j$ by shuffling its validation column and recording the Macro F1 drop. \\
+\textbf{Top-3 Accuracy ($23$c)} & $\displaystyle \frac{1}{N}\sum_{i=1}^{N} \mathbb{I}\!\left(y_i \in \text{Top3}(\hat{\mathbf{p}}_i)\right)$ & Essential across $23$ classes containing near-identical sibling checkpoints (\texttt{gpt-4o}, \texttt{gpt-4-turbo}, \texttt{gpt-4o-mini}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
