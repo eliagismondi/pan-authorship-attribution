@@ -18,7 +18,7 @@ flowchart TD
 
 ---
 
-## 2. Literature Review Comparison Matrix (Point 11)
+## 2. Literature Review Comparison Matrix
 
 | Paper / Framework | Extracted Feature Space | Classifier / Model | Target Problem | Limitations / Gaps |
 | :--- | :--- | :--- | :--- | :--- |
@@ -29,7 +29,7 @@ flowchart TD
 
 ---
 
-## 3. Dataset Dimensions & Inspection (Points 1, 2, 8)
+## 3. Dataset Dimensions & Inspection
 
 | Split | Records ($N$) | Classes ($k_{labels}$) | Candidate Authors / Models ($k_{models}$) | Domains ($k_{genres}$) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -37,7 +37,7 @@ flowchart TD
 | **Validation** | 3,589 | 2 (Human: 1,379; AI: 2,210) | 23 (Human + 22 AI models) | 3 (Fiction: 2,226; Essays: 706; News: 657) |
 | **Total** | **27,296** | **2** | **23** | **3** |
 
-### Data Quality & Integrity (Points 3, 4, 12)
+### Data Quality & Integrity
 - **Corrupted Lines (JSON errors)**: 0
 - **Missing Required Fields (`id`, `text`, `model`, `label`, `genre`)**: 0
 - **Empty / Whitespace Texts**: 0
@@ -47,7 +47,7 @@ flowchart TD
 
 ---
 
-## 4. Key Exploratory Stylometric Findings (Points 10, 11)
+## 4. Key Exploratory Stylometric Findings
 
 | Stylometric Metric | Human Written ($y=0$) | AI-Generated ($y=1$) | Stylistic Interpretation |
 | :--- | :--- | :--- | :--- |
@@ -86,22 +86,11 @@ flowchart TD
 ```
 pan-authorship-attribution/
 ├── data/
-│   ├── raw/
-│   │   └── pan25-generative-ai-detection-task1-train/
-│   │       ├── train.jsonl
-│   │       └── val.jsonl
-│   └── processed/                      # Cached CSR feature matrices (.npz) & diagnostics (.csv)
+│   └── processed/                      # Exported evaluation & ablation diagnostics (.csv)
 ├── notebooks/
 │   └── 01_exploratory_analysis.ipynb   # Interactive Jupyter EDA & Presentation
 ├── reports/
-│   ├── 01_data_understanding_report.md
-│   ├── 02_baseline_feature_extraction_report.md
-│   ├── 03_advanced_derivation_report.md
-│   ├── 04_feature_distributions_point10_report.md
-│   ├── 05_correlation_matrix_points_9_13_report.md
-│   ├── 06_feature_influence_and_importance_report.md
-│   ├── 07_baseline_models_report.md
-│   └── figures/                        # Exported publication-ready figures
+│   └── figures/                        # Exported publication-ready figures (.png)
 │       ├── class_balance_binary.png
 │       ├── class_balance_authors.png
 │       ├── class_balance_genres.png

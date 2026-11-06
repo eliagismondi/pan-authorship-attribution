@@ -40,7 +40,14 @@ Thumbs.db
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 
-# Large binary feature matrices (>100MB, regenerated via `python3 src/main.py --stage 4`)
+# Large binary feature matrices & local datasets/caches
+data/raw/
 data/processed/*.npz
 data/processed/*.npy
+data/processed/meta_*.csv
+
+# Local presentation scripts & study notes
+reports/*.tex
+reports/*.md
+
 
